@@ -1,0 +1,22 @@
+name: Play the week
+on:
+  schedule:
+    - cron: '0 13 * * 2'
+  workflow_dispatch:
+    inputs:
+      weeks:
+        description: 'How many weeks to play'
+        default: '1'
+jobs:
+  play:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: node run-week.js
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          WEEKS: ${{ github.event.inputs.weeks || '1' }}
