@@ -1332,8 +1332,9 @@ button:active:not(:disabled) { transform: scale(.98); }
       }
       h += amsg + '<p class="pool" style="margin-top:12px"><button class="link" data-gate="acct-close">Close</button></p>';
     }
+    else if (authMode === "recover") h += '<h2 id="gth">Choose a new password</h2><p class="pool">Pick a new password for your account (6 or more characters).</p><label class="pmeta" style="display:block;margin-top:6px">New password<br><input id="gt-newpw" type="password" autocomplete="new-password" ' + fld + '></label>' + msg + '<button class="btn buy" data-gate="recover-save" style="margin-top:10px">Save password</button>';
     else if (authMode === "signup") h += '<h2 id="gth">Create your account</h2><label class="pmeta" style="display:block;margin-top:6px">Display name<br><input id="gt-name" maxlength="24" autocomplete="nickname" ' + fld + '></label><label class="pmeta" style="display:block;margin-top:10px">Email<br><input id="gt-email" type="email" autocomplete="email" ' + fld + '></label><label class="pmeta" style="display:block;margin-top:10px">Password (6 or more characters)<br><input id="gt-pass" type="password" autocomplete="new-password" ' + fld + '></label>' + codeF + rules + msg + '<button class="btn buy" data-gate="signup">Create account</button><p class="pool" style="margin-top:12px">Already have one? <button class="link" data-gate="switch">Sign in</button></p>';
-    else h += '<h2 id="gth">Sign in</h2><label class="pmeta" style="display:block;margin-top:6px">Email<br><input id="gt-email" type="email" autocomplete="email" ' + fld + '></label><label class="pmeta" style="display:block;margin-top:10px">Password<br><input id="gt-pass" type="password" autocomplete="current-password" ' + fld + '></label>' + msg + '<button class="btn buy" data-gate="signin" style="margin-top:10px">Sign in</button><p class="pool" style="margin-top:12px">New here? <button class="link" data-gate="switch">Create an account</button></p>';
+    else h += '<h2 id="gth">Sign in</h2><label class="pmeta" style="display:block;margin-top:6px">Email<br><input id="gt-email" type="email" autocomplete="email" ' + fld + '></label><label class="pmeta" style="display:block;margin-top:10px">Password<br><input id="gt-pass" type="password" autocomplete="current-password" ' + fld + '></label>' + msg + '<button class="btn buy" data-gate="signin" style="margin-top:10px">Sign in</button><p class="pool" style="margin-top:12px">New here? <button class="link" data-gate="switch">Create an account</button> &middot; <button class="link" data-gate="forgot">Forgot password?</button></p>';
     g.innerHTML = h + '</div>'; g.hidden = false;
   }
   function hideGate() { gateEl().hidden = true; }
@@ -1408,6 +1409,30 @@ button:active:not(:disabled) { transform: scale(.98); }
       }, function () { gateBusy = false; gateMsg = "Could not reach the server. Try again."; showGate(); });
       return;
     }
+    if (a === "forgot") {
+      var fe = gv("gt-email");
+      if (!fe) { gateMsg = "Type your email above first, then tap Forgot password."; showGate(); return; }
+      gateBusy = true;
+      var back = location.origin + location.pathname;
+      sb.auth.resetPasswordForEmail(fe, { redirectTo: back }).then(function (r) {
+        gateBusy = false; authMode = "signin";
+        showGate(); var ee = document.getElementById("gt-email"); if (ee) ee.value = fe;
+        var m = document.getElementById("gt-msg"); if (m) { m.style.color = r && r.error ? "var(--warn)" : "var(--up)"; m.textContent = r && r.error ? cleanErr(r.error.message) : "If that email has an account, a reset link is on its way. Check your spam folder too."; }
+      }, function () { gateBusy = false; gateMsg = "Could not reach the server. Try again."; showGate(); });
+      return;
+    }
+    if (a === "recover-save") {
+      var rp2 = document.getElementById("gt-newpw").value;
+      if (rp2.length < 6) { gateMsg = "Use at least 6 characters."; showGate(); return; }
+      gateBusy = true;
+      sb.auth.updateUser({ password: rp2 }).then(function (r) {
+        gateBusy = false;
+        if (r && r.error) { gateMsg = r.error.message; showGate(); return; }
+        try { history.replaceState(null, "", location.pathname); } catch (e) {}
+        sb.auth.getSession().then(function (g) { user = g.data && g.data.session ? g.data.session.user : null; if (!user) { authMode = "signin"; gateMsg = "Password saved. Sign in with it."; showGate(); return; } afterAuth(); });
+      }, function () { gateBusy = false; gateMsg = "Could not reach the server. Try again."; showGate(); });
+      return;
+    }
     if (a === "switch") { authMode = authMode === "signin" ? "signup" : "signin"; gateMsg = ""; showGate(); return; }
     if (a === "signout") { sb.auth.signOut().then(function () { location.reload(); }); return; }
     if (a === "signin") {
@@ -1472,9 +1497,22 @@ button:active:not(:disabled) { transform: scale(.98); }
   /* ---------- league ---------- */
   function loadBoard() {
     var w = lgWeek == null ? Math.max(S.week - 1, 0) : lgWeek;
-    return Promise.all([sb.from("profiles").select("user_id,name"), sb.from("net_worth_hist").select("user_id,week,worth").in("week", [Math.max(w - 1, 0), w])]).then(function (r) {
-      board.profiles = r[0].data || []; board.rows = r[1].data || []; board.w = w; if (tab === "board") render();
+    return Promise.all([sb.from("profiles").select("user_id,name"), sb.from("net_worth_hist").select("user_id,week,worth").in("week", [Math.max(w - 1, 0), w]), sb.rpc("recent_trades", { p_limit: 15 }).then(function (x) { return x; }, function () { return { data: [] }; })]).then(function (r) {
+      board.profiles = r[0].data || []; board.rows = r[1].data || []; board.trades = (r[2] && r[2].data) || []; board.w = w; if (tab === "board") render();
     }).catch(function () { board.w = w; board.profiles = []; board.rows = []; if (tab === "board") render(); });
+  }
+  function podiumHTML(season, w) {
+    if (w < LAST_WEEK || !season.length) return "";
+    var top = season.slice().sort(function (a, b) { return b.v - a.v; }).slice(0, 3), names = ["Champion", "Second", "Third"], ret = (top[0].v / START_CASH - 1) * 100;
+    return '<div class="recap" style="margin-top:12px"><div class="rh"><b>' + esc(top[0].name) + ' wins the league</b></div><div class="pool" style="margin-top:4px">Final net worth $' + fmt0(top[0].v) + ' (' + (ret >= 0 ? '+' : '') + ret.toFixed(1) + '%). Thanks for playing.</div><div class="list" style="margin-top:8px">' + top.map(function (r, i) {
+      return '<div class="item"><div class="oline pad"><span><b>' + names[i] + ': ' + esc(r.name) + '</b>' + (r.you ? ' <span class="pool">you</span>' : '') + '</span><span class="num">$' + fmt0(r.v) + '</span></div></div>';
+    }).join("") + '</div></div>';
+  }
+  function tradesHTML() {
+    var t = board.trades || []; if (!t.length) return "";
+    return '<div class="sect">League activity</div><div class="list">' + t.map(function (x) {
+      return '<div class="item"><div class="oline pad"><span><b>' + esc(x.name) + '</b> ' + (x.kind === "buy" ? "bought" : "sold") + ' ' + fmtSh(+x.sh) + ' ' + plural(+x.sh) + ' of ' + esc(x.player) + '</span><span class="num">$' + fmt0(+x.amt) + '</span></div></div>';
+    }).join("") + '</div>';
   }
   function renderBoard() {
     if (board.w == null) { loadBoard(); return '<div class="empty"><strong>Loading standings</strong>One moment.</div>'; }
@@ -1500,9 +1538,9 @@ button:active:not(:disabled) { transform: scale(.98); }
       '<div class="pool" style="margin-top:8px">Everyone shares the same prices and the same week. Standings update after each week is played.</div>' +
       '<div class="mtools" style="margin-top:10px"><label class="pool" for="lgweek" style="align-self:center">Standings as of</label><select id="lgweek" aria-label="Standings as of week" style="max-width:none;flex:1">' + opts + '</select></div></div>';
     var divs = '<div class="note">Dividends pay by performance. Each week every bonus point a player earns pays 1% of the share price to everyone holding that player. Game dollars only, so there is no real money involved.</div>';
-    return head + '<div class="sect">' + (w >= LAST_WEEK ? 'Final standings' : 'Season standings') + '</div>' + (season.length ? table(season, function (r) { return r.v - START_CASH; }, function (v) { return "$" + fmt0(v); }) : '<div class="empty"><strong>No standings yet</strong>Check back after the next week is played.</div>') +
+    return head + podiumHTML(season, w) + '<div class="sect">' + (w >= LAST_WEEK ? 'Final standings' : 'Season standings') + '</div>' + (season.length ? table(season, function (r) { return r.v - START_CASH; }, function (v) { return "$" + fmt0(v); }) : '<div class="empty"><strong>No standings yet</strong>Check back after the next week is played.</div>') +
       '<div class="sect">' + (w === 0 ? 'Week return' : weekLabel(w) + ' return') + '</div>' + table(weekly, function (r) { return r.v; }, pctF) +
-      (behind.length ? '<div class="sect">Joined later</div><div class="list">' + behind.map(function (r) { return '<div class="item"><div class="oline pad"><span><b>' + esc(r.name) + '</b></span><span class="pool">not at this week</span></div></div>'; }).join("") + '</div>' : '') + divs;
+      (behind.length ? '<div class="sect">Joined later</div><div class="list">' + behind.map(function (r) { return '<div class="item"><div class="oline pad"><span><b>' + esc(r.name) + '</b></span><span class="pool">not at this week</span></div></div>'; }).join("") + '</div>' : '') + tradesHTML() + divs;
   }
 
   /* ---------- chat ---------- */
@@ -1560,7 +1598,11 @@ button:active:not(:disabled) { transform: scale(.98); }
     authMode = "loading"; showGate();
     if (!window.supabase || !window.supabase.createClient) { authMode = "fatal"; gateMsg = "The sign-in service did not load. Check your connection and try again."; showGate(); return; }
     sb = window.supabase.createClient(CFG.url, CFG.key, { auth: { persistSession: true, autoRefreshToken: true } });
+    if (sb.auth.onAuthStateChange) sb.auth.onAuthStateChange(function (ev) { if (ev === "PASSWORD_RECOVERY") { authMode = "recover"; gateMsg = ""; showGate(); } });
     sb.auth.getSession().then(function (r) {
+      var recovering = false; try { recovering = /type=recovery/.test(location.hash); } catch (e) {}
+      if (authMode === "recover") return;
+      if (recovering && r.data && r.data.session) { authMode = "recover"; gateMsg = ""; showGate(); return; }
       user = r.data && r.data.session ? r.data.session.user : null;
       if (!user) { authMode = "signin"; gateMsg = ""; showGate(); return; }
       return afterAuth();

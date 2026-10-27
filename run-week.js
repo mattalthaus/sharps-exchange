@@ -76,7 +76,7 @@ function freshGame(rookies) {
 
 /* ---------- schedule strength ---------- */
 function makeCtx(data, random) {
-  return { real: data.real, sched: data.sched, conf: data.conf, rookies: data.rookies, liveWeeks: data.liveWeeks || {}, rand: random || Math.random };
+  return { real: data.real, sched: data.sched, conf: data.conf, rookies: data.rookies, liveWeeks: data.liveWeeks || {}, liveBracket: data.liveBracket || null, liveFeed: data.liveFeed || null, rand: random || Math.random };
 }
 function oppOf(ctx, team, wk) {
   const a = ctx.sched[team];
@@ -171,11 +171,11 @@ const seasonOver = g => g.week > CFG.LAST_WEEK;
 function playWeek(game, ctx) {
   const g = game, wk = g.week, feed = [], moves = [], winners = [], splits = [], recs = [], debuted = [];
   if (seasonOver(g)) return { week: wk, moves, winners, splits, debuted, feed, over: true };
-  if (wk > CFG.REG_WEEKS && !g.bracket) initBracket(g, ctx);
   const realWk = wk <= CFG.REAL_LAST || !!(ctx.liveWeeks && ctx.liveWeeks[wk]);
+  if (wk > CFG.REG_WEEKS && !g.bracket && !realWk) initBracket(g, ctx);
 
   g.players.forEach(p => {
-    if (wk > CFG.REG_WEEKS && g.bracket && !g.bracket.plays[p.team]) return;            // eliminated or on a bye: frozen
+    if (!realWk && wk > CFG.REG_WEEKS && g.bracket && !g.bracket.plays[p.team]) return;            // eliminated or on a bye: frozen
     if (!realWk && wk <= CFG.REG_WEEKS && ctx.sched[p.team] && ctx.sched[p.team][wk - 1] === '') return; // bye week
     const row = realWk && ctx.real[p.id] ? ctx.real[p.id][wk] : null;
     const oppT = oppOf(ctx, p.team, wk), R = oppT ? rating(g, oppT, p.pos) : 1;
@@ -217,6 +217,10 @@ function playWeek(game, ctx) {
 
   feed.unshift({ kind: 'info', text: realWk ? 'Week ' + wk + ' prices and bonuses use real NFL results.' : 'Week ' + wk + ' is simulated: real results are not loaded yet.' });
   moves.sort((a, b) => b.d - a.d);
+  /* the week's biggest movers, for the news feed */
+  const pxNow = {}; g.players.forEach(p => { pxNow[p.id] = p.px; });
+  moves.slice(0, 3).filter(m => m.d > 0.01).forEach(m => feed.push({ kind: 'up', text: m.name + ' is up ' + (m.d * 100).toFixed(1) + '% to $' + pxNow[m.id].toFixed(2) + ' after ' + m.pts.toFixed(1) + ' points.' }));
+  moves.slice(-3).reverse().filter(m => m.d < -0.01).forEach(m => feed.push({ kind: 'down', text: m.name + ' is down ' + (Math.abs(m.d) * 100).toFixed(1) + '% to $' + pxNow[m.id].toFixed(2) + ' after ' + m.pts.toFixed(1) + ' points.' }));
 
   /* rookie debuts */
   const still = [];
@@ -231,7 +235,10 @@ function playWeek(game, ctx) {
   g.debuts = still;
   if (g.debuts.length < 3 && g.queue.length) g.debuts.push({ r: g.queue.shift(), cd: 2 });
 
-  if (wk > CFG.REG_WEEKS) advanceBracket(g, ctx, wk, feed); else if (wk === CFG.REG_WEEKS) initBracket(g, ctx);
+  if (wk > CFG.REG_WEEKS && realWk) {                    // real playoffs: the results decide who is alive; nothing is made up
+    if (ctx.liveFeed) ctx.liveFeed.forEach(f => feed.push(f));
+    if (ctx.liveBracket) g.bracket = ctx.liveBracket;
+  } else if (wk > CFG.REG_WEEKS) advanceBracket(g, ctx, wk, feed); else if (wk === CFG.REG_WEEKS) initBracket(g, ctx);
   g.week++;
   return { week: wk, moves, winners, splits, debuted, feed, over: seasonOver(g) };
 }
@@ -278,15 +285,18 @@ const paBracket = pa => pa === 0 ? 10 : pa <= 6 ? 7 : pa <= 13 ? 4 : pa <= 20 ? 
 
 /* players: [{id,name,team,pos}], playerCsv/teamCsv: parsed rows, sched: {team:[opp or '' per week]}, wk: week number.
    Returns { rows: {playerId: row}, complete, have, need, missing:[teams], unmatched:[names] } */
-function buildWeek(players, playerCsv, teamCsv, sched, wk) {
-  const T = {}; teamCsv.forEach(r => { if (r.season_type === 'REG' && +r.week === wk) T[r.team] = r; });
-  const need = Object.keys(sched).filter(t => sched[t][wk - 1] !== '' && sched[t][wk - 1] != null);
+function buildWeek(players, playerCsv, teamCsv, sched, wk, opts) {
+  opts = opts || {};
+  const st = opts.stype || 'REG';
+  const T = {}; teamCsv.forEach(r => { if (r.season_type === st && +r.week === wk) T[r.team] = r; });
+  const need = opts.need || Object.keys(sched).filter(t => sched[t][wk - 1] !== '' && sched[t][wk - 1] != null);
+  const plays = opts.need ? new Set(opts.need) : null;
   const missing = need.filter(t => !T[nfl(t)]);
   const out = { rows: {}, complete: missing.length === 0 && need.length > 0, have: need.length - missing.length, need: need.length, missing, unmatched: [] };
 
   const byName = {};
   playerCsv.forEach(r => {
-    if (r.season_type !== 'REG' || +r.week !== wk) return;
+    if (r.season_type !== st || +r.week !== wk) return;
     const pos = POS[r.position]; if (!pos) return;
     (byName[norm(r.player_display_name) + '|' + pos] = byName[norm(r.player_display_name) + '|' + pos] || []).push(r);
   });
@@ -307,7 +317,7 @@ function buildWeek(players, playerCsv, teamCsv, sched, wk) {
   });
   /* players with no line this week who do appear somewhere in the file under a different spelling are worth a look */
   const seen = new Set(Object.keys(byName).map(k => k.split('|')[0]));
-  players.forEach(p => { if (p.pos !== 'DEF' && !out.rows[p.id] && !seen.has(norm(p.name)) && sched[p.team] && sched[p.team][wk - 1]) out.unmatched.push(p.name); });
+  players.forEach(p => { if (p.pos !== 'DEF' && !out.rows[p.id] && !seen.has(norm(p.name)) && (plays ? plays.has(p.team) : sched[p.team] && sched[p.team][wk - 1])) out.unmatched.push(p.name); });
   return out;
 }
 
@@ -316,7 +326,7 @@ const STATUS = { out: 'O', doubtful: 'D', questionable: 'Q' };
 function buildInjuries(players, injCsv, wk) {
   const idx = {};
   injCsv.forEach(r => {
-    if (r.season_type !== 'REG' || +r.week !== wk) return;
+    if (r.season_type !== (wk > 18 ? 'POST' : 'REG') || +r.week !== wk) return;
     const st = STATUS[String(r.report_status || '').trim().toLowerCase()]; if (!st) return;
     const pos = POS[r.position]; if (!pos) return;
     (idx[norm(r.full_name) + '|' + pos] = idx[norm(r.full_name) + '|' + pos] || []).push({ st, team: r.team, part: String(r.report_primary_injury || '').trim() });
@@ -371,13 +381,80 @@ function buildTeamMoves(players, playerCsv) {
   return moves;
 }
 
+/* ---------- real playoffs ----------
+   nflverse lists postseason games in the same games file (game_type WC / DIV / CON / SB) and the stat files carry them
+   as season_type POST with weeks 19-22, so the game's weeks 19-22 map straight onto them. */
+const ROUND = { 19: 'Wild Card', 20: 'Divisional', 21: 'Conference', 22: 'Super Bowl' };
+const ours = t => OURS[t] || t;
+const scored = v => v !== '' && v != null && v !== 'NA';
+function playoffGames(gamesCsv, season, wk) {
+  return gamesCsv.filter(g => +g.season === +season && +g.week === wk && g.game_type && g.game_type !== 'REG').map(g => {
+    const done = scored(g.home_score) && scored(g.away_score);
+    return { home: ours(g.home_team), away: ours(g.away_team), hs: done ? +g.home_score : null, as: done ? +g.away_score : null, done };
+  });
+}
+const winnerOf = g => g.hs === g.as ? null : (g.hs > g.as ? g.home : g.away);
+/* Same as buildWeek, but for a playoff week: only the teams in that week's games are needed, and every game must be final. */
+function buildPlayoffWeek(players, playerCsv, teamCsv, gamesCsv, season, wk) {
+  const games = playoffGames(gamesCsv, season, wk);
+  const need = [...new Set(games.reduce((a, g) => a.concat([g.home, g.away]), []))];
+  const b = buildWeek(players, playerCsv, teamCsv, null, wk, { stype: 'POST', need });
+  b.games = games;
+  b.complete = b.complete && games.length > 0 && games.every(g => g.done && winnerOf(g));
+  return b;
+}
+/* One-line results for the news feed. */
+function playoffFeed(games, wk) {
+  const out = [];
+  games.forEach(g => {
+    const w = winnerOf(g); if (!w) return;
+    const l = w === g.home ? g.away : g.home, ws = Math.max(g.hs, g.as), ls = Math.min(g.hs, g.as);
+    out.push({ kind: 'info', text: wk === 22 ? w + ' beat ' + l + ' ' + ws + '-' + ls + ' and win the Super Bowl. The season is over.' : ROUND[wk] + ': ' + w + ' beat ' + l + ' ' + ws + '-' + ls + '.' });
+  });
+  return out;
+}
+/* The playoff picture going into week `wk` (19-23), built from the real results: who is still alive and who plays.
+   Returns null when the games it needs are not posted yet. conf = { AFC: [teams], NFC: [teams] } in our team codes. */
+function buildBracket(gamesCsv, season, conf, wk) {
+  if (wk < 19 || wk > 23) return null;
+  const wc = playoffGames(gamesCsv, season, 19); if (!wc.length) return null;
+  const inWc = new Set(); wc.forEach(g => { inWc.add(g.home); inWc.add(g.away); });
+  const rec = {};
+  gamesCsv.forEach(g => {
+    if (+g.season !== +season || g.game_type !== 'REG' || !scored(g.home_score) || !scored(g.away_score)) return;
+    const h = ours(g.home_team), a = ours(g.away_team), d = +g.home_score - +g.away_score;
+    rec[h] = rec[h] || 0; rec[a] = rec[a] || 0;
+    if (d > 0) rec[h] += 1; else if (d < 0) rec[a] += 1; else { rec[h] += 0.5; rec[a] += 0.5; }
+  });
+  const alive = {};
+  ['AFC', 'NFC'].forEach(c => {
+    const bye = conf[c].filter(t => !inWc.has(t)).sort((x, y) => (rec[y] || 0) - (rec[x] || 0))[0];
+    alive[c] = [bye].concat(conf[c].filter(t => inWc.has(t)));
+  });
+  let champ = '';
+  for (let w = 19; w < wk; w++) {
+    const gs = playoffGames(gamesCsv, season, w); if (!gs.length || !gs.every(g => g.done && winnerOf(g))) return null;
+    const lost = new Set(gs.map(g => winnerOf(g) === g.home ? g.away : g.home));
+    ['AFC', 'NFC'].forEach(c => { alive[c] = alive[c].filter(t => !lost.has(t)); });
+    if (w === 22) champ = winnerOf(gs[0]);
+  }
+  const plays = {};
+  if (wk <= 22) {
+    const gs = playoffGames(gamesCsv, season, wk);
+    if (gs.length) gs.forEach(g => { plays[g.home] = 1; plays[g.away] = 1; });
+    else if (wk > 19) alive.AFC.concat(alive.NFC).forEach(t => { plays[t] = 1; });
+    else return null;
+  }
+  return { alive, round: wk, plays, champ };
+}
+
 const urls = season => ({
   player: 'https://github.com/nflverse/nflverse-data/releases/download/stats_player/stats_player_week_' + season + '.csv',
   team: 'https://github.com/nflverse/nflverse-data/releases/download/stats_team/stats_team_week_' + season + '.csv',
   games: 'https://github.com/nflverse/nflverse-data/releases/download/schedules/games.csv',
   inj: 'https://github.com/nflverse/nflverse-data/releases/download/injuries/injuries_' + season + '.csv',
 });
-module.exports = { parseCsv, buildWeek, buildInjuries, buildKickoffs, buildTeamMoves, etToIso, urls, norm, nfl };
+module.exports = { parseCsv, buildWeek, buildPlayoffWeek, playoffGames, playoffFeed, buildBracket, buildInjuries, buildKickoffs, buildTeamMoves, etToIso, urls, norm, nfl };
 
 return module.exports; })();
 const R = (function () { const module = { exports: {} }; 
@@ -395,7 +472,7 @@ function runWeek(gameRow, playerRows, random, live) {
   const before = new Set(g.players.map(p => p.id));
   const d = data();
   if (live && live.rows) {                       // real results fetched for this week: merge them over the built-in data
-    d.real = Object.assign({}, d.real); d.liveWeeks = {}; d.liveWeeks[g.week] = true;
+    d.real = Object.assign({}, d.real); d.liveWeeks = {}; d.liveWeeks[g.week] = true; d.liveBracket = live.bracket || null; d.liveFeed = live.feed || null;
     Object.keys(live.rows).forEach(id => { d.real[id] = Object.assign({}, d.real[id]); d.real[id][g.week] = live.rows[id]; });
   }
   const ev = E.playWeek(g, E.makeCtx(d, random));
@@ -415,21 +492,22 @@ module.exports = { runWeek };
 
 return module.exports; })();
 // Plays the next week(s) for the whole league.
-//   SUPABASE_URL=https://xxxx.supabase.co SUPABASE_SERVICE_KEY=... [WEEKS=22] [FORCE=1] node scripts/run-week.js [--dry]
+//   SUPABASE_URL=https://xxxx.supabase.co SUPABASE_SERVICE_KEY=... [WEEKS=22] node scripts/run-week.js [--dry]
 // Weeks 1-6 use the real results built into this file. Weeks 7-18 wait for the real results to be published
-// (nflverse, free) and are never made up. Playoff weeks (19-22) are simulated, one per week.
+// (nflverse, free) and are never made up. The playoffs (weeks 19-22) are real too: each round plays once its games are final.
 const { runWeek } = R;
 
 const SCHED = DATA.sched;
+const CONF = DATA.conf;
 const url = process.env.SUPABASE_URL, key = process.env.SUPABASE_SERVICE_KEY, dry = process.argv.includes('--dry');
 if (!url || !key) { console.error('Set SUPABASE_URL and SUPABASE_SERVICE_KEY first.'); process.exit(1); }
-const FORCE = process.env.FORCE === '1';
 const H = { apikey: key, Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' };
 const get = async p => { const r = await fetch(url + '/rest/v1/' + p, { headers: H }); if (!r.ok) throw new Error(p + ': ' + r.status + ' ' + await r.text()); return r.json(); };
 const text = async u => { const r = await fetch(u, { redirect: 'follow' }); if (!r.ok) throw new Error('Could not download ' + u + ' (' + r.status + ')'); return r.text(); };
 const weeks = Math.max(1, Math.min(22, parseInt(process.env.WEEKS || '1', 10) || 1));
 const REAL_BUILT_IN = 6, REG = 18;
-let csv = null;
+let csv = null, gamesCsv = null;
+const getGames = async season => gamesCsv || (gamesCsv = L.parseCsv(await text(L.urls(season).games)));
 // Keeps each player's team current after trades, using the team on his latest stat line.
 async function refreshTeams() {
   try {
@@ -446,6 +524,18 @@ async function refreshTeams() {
       await fetch(url + '/rest/v1/feed', { method: 'POST', headers: Object.assign({ Prefer: 'return=minimal' }, H), body: JSON.stringify({ week: game.week, kind: 'info', text: m.name + ' is now with ' + m.to + '.' }) });
     }
   } catch (e) { console.log('Team changes not updated:', e.message); }
+}
+// Keeps the playoff picture (who is alive, who plays this week) in line with the real games.
+async function refreshBracket() {
+  try {
+    const [game] = await get('game_state?id=eq.1'); if (!game || game.week <= REG || game.week > 22) return;
+    const b = L.buildBracket(await getGames(game.season), game.season, CONF, game.week);
+    if (!b) { console.log('Playoff matchups for week', game.week, 'are not posted yet.'); return; }
+    if (dry) { console.log('Playoff picture for week', game.week + ':', Object.keys(b.plays).length, 'teams play (dry run, not saved)'); return; }
+    const r = await fetch(url + '/rest/v1/game_state?id=eq.1', { method: 'PATCH', headers: Object.assign({ Prefer: 'return=minimal' }, H), body: JSON.stringify({ bracket: b }) });
+    if (!r.ok) throw new Error('save: ' + r.status + ' ' + await r.text());
+    console.log('Playoff picture for week', game.week + ':', Object.keys(b.plays).length, 'teams play.');
+  } catch (e) { console.log('Playoff picture not updated:', e.message); }
 }
 // Writes this week's kickoff times so the database can lock a team's players from kickoff until the week is played.
 async function refreshKickoffs() {
@@ -495,8 +585,14 @@ async function refreshInjuries() {
       console.log('Week', wk, 'real results found for', Object.keys(b.rows).length, 'players.', b.unmatched.length ? 'No stat line for: ' + b.unmatched.join(', ') : '');
       live = b;
     } else if (wk > REG) {
-      const days = (Date.now() - Date.parse(game.updated_at)) / 864e5;
-      if (days < 5 && !FORCE) { console.log('Playoff week', wk, 'plays about a week after the last one. Waiting; nothing played.'); break; }
+      if (!csv) { const u = L.urls(game.season); csv = { p: L.parseCsv(await text(u.player)), t: L.parseCsv(await text(u.team)) }; }
+      const gm = await getGames(game.season);
+      const b = L.buildPlayoffWeek(players, csv.p, csv.t, gm, game.season, wk);
+      if (!b.complete) { console.log('Playoff week', wk, 'real results are not final yet (' + b.games.filter(g => g.done).length + ' of ' + b.games.length + ' games, ' + b.have + ' of ' + b.need + ' teams). Waiting; nothing played.'); break; }
+      b.bracket = L.buildBracket(gm, game.season, CONF, wk + 1);
+      b.feed = L.playoffFeed(b.games, wk);
+      console.log('Playoff week', wk, 'real results found for', Object.keys(b.rows).length, 'players.');
+      live = b;
     }
     const { event, payload } = runWeek(game, players, Math.random, live);
     const top = event.moves[0], low = event.moves[event.moves.length - 1];
@@ -506,6 +602,7 @@ async function refreshInjuries() {
     if (!r.ok) throw new Error('apply_week: ' + r.status + ' ' + await r.text());
     console.log('Saved.', JSON.stringify(await r.json())); played++;
   }
+  await refreshBracket();
   await refreshTeams();
   await refreshKickoffs();
   await refreshInjuries();
