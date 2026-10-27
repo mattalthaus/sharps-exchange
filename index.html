@@ -1212,7 +1212,7 @@ button:active:not(:disabled) { transform: scale(.98); }
   var worldTimer = null, busy = false;
 
   function esc(t) { return String(t).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
-  function cleanErr(m) { m = String(m || "Something went wrong."); return m.replace(/^.*?(Sign in first|Not allowed|There is nothing|No player with|Password must|Trading is closed|That invite code|Pick a name|You already joined|That name is taken|Not enough cash|You do not own|Unknown player|Enter an amount|The season is over|Join the game first|Slow down|Messages are)/, "$1"); }
+  function cleanErr(m) { m = String(m || "Something went wrong."); return m.replace(/^.*?(Sign in first|Not allowed|There is nothing|No player with|Password must|Trading is closed|That invite code|Pick a name|You already joined|That name is taken|Not enough cash|You do not own|Unknown player|Enter an amount|The season is over|Join the game first|Slow down|Messages are|You cannot remove)/, "$1"); }
   function myWorth() { return S.cash + holdingsValue(); }
   function myName() { return S.profile ? S.profile.name : "You"; }
   function emptyState() {
@@ -1301,7 +1301,7 @@ button:active:not(:disabled) { transform: scale(.98); }
   }
 
   /* ---------- sign-in screen ---------- */
-  var undoArmed = false;
+  var undoArmed = false, removeArmed = false;
   function gateEl() { return document.getElementById("gate"); }
   function showGate() {
     var g = gateEl(), h = '<div class="card" role="dialog" aria-modal="true" aria-labelledby="gth">';
@@ -1324,6 +1324,9 @@ button:active:not(:disabled) { transform: scale(.98); }
           '<label class="pmeta" style="display:block;margin-top:6px">Player name<br><input id="gt-rname" maxlength="24" autocomplete="off" ' + fld + '></label>' +
           '<label class="pmeta" style="display:block;margin-top:10px">Temporary password<br><input id="gt-rpw" autocomplete="off" ' + fld + '></label>' +
           '<button class="btn buy" data-gate="adm-reset" style="margin-top:10px">Reset their password</button>' +
+          '<p class="pool" style="margin-top:16px">Remove a player deletes their login, cash, shares and chat messages for good. Use it for someone who should not be here.</p>' +
+          '<label class="pmeta" style="display:block;margin-top:6px">Player name<br><input id="gt-xname" maxlength="24" autocomplete="off" ' + fld + '></label>' +
+          '<button class="btn sell" data-gate="adm-remove" style="margin-top:10px">' + (removeArmed ? "Tap again to remove them" : "Remove player") + '</button>' +
           '<p class="pool" style="margin-top:16px">Undo last week puts prices, cash, shares and the week counter back to just before the last week was played. Trades made since then are undone too.</p>' +
           '<button class="btn sell" data-gate="adm-undo" style="margin-top:6px">' + (undoArmed ? "Tap again to undo the last week" : "Undo last week") + '</button></div>';
       }
@@ -1372,7 +1375,7 @@ button:active:not(:disabled) { transform: scale(.98); }
   function gateAction(a) {
     if (gateBusy) return;
     if (a === "reload") { location.reload(); return; }
-    if (a === "acct-close") { undoArmed = false; gateMsg = ""; hideGate(); return; }
+    if (a === "acct-close") { undoArmed = false; removeArmed = false; gateMsg = ""; hideGate(); return; }
     if (a === "acct-pw") {
       var np = document.getElementById("gt-newpw").value;
       if (np.length < 6) { gateMsg = "Use at least 6 characters."; showGate(); return; }
@@ -1385,6 +1388,14 @@ button:active:not(:disabled) { transform: scale(.98); }
       if (!rn || rp.length < 6) { gateMsg = "Enter the player's name and a password of at least 6 characters."; showGate(); return; }
       gateBusy = true;
       sb.rpc("admin_reset_password", { p_name: rn, p_new: rp }).then(function (r) { gateBusy = false; gateMsg = r.error ? cleanErr(r.error.message) : "OK:Password reset for " + rn + ". Tell them the new one."; showGate(); }, function () { gateBusy = false; gateMsg = "Could not reach the server. Try again."; showGate(); });
+      return;
+    }
+    if (a === "adm-remove") {
+      var xn = gv("gt-xname");
+      if (!xn) { gateMsg = "Enter the player's name."; removeArmed = false; showGate(); return; }
+      if (!removeArmed) { removeArmed = true; gateMsg = "Tap again to remove " + xn + " for good."; showGate(); var xe = document.getElementById("gt-xname"); if (xe) xe.value = xn; return; }
+      removeArmed = false; gateBusy = true;
+      sb.rpc("admin_remove_player", { p_name: xn }).then(function (r) { gateBusy = false; gateMsg = r.error ? cleanErr(r.error.message) : "OK:Removed " + xn + "."; showGate(); }, function () { gateBusy = false; gateMsg = "Could not reach the server. Try again."; showGate(); });
       return;
     }
     if (a === "adm-undo") {
@@ -1498,7 +1509,7 @@ button:active:not(:disabled) { transform: scale(.98); }
   function chatTime(t) { var d = new Date(t); return isFinite(d) ? d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : ""; }
   function chatListHTML() {
     if (!chat.msgs.length) return '<div class="cmsg"><span class="pool">' + (chat.ready ? 'No messages yet. Say hello.' : 'Loading chat...') + '</span></div>';
-    return chat.msgs.map(function (m) { return '<div class="cmsg"><span class="who">' + esc(m.name || "Player") + '</span><span class="when">' + esc(chatTime(m.at)) + '</span><br>' + esc(m.text || "") + '</div>'; }).join("");
+    return chat.msgs.map(function (m) { return '<div class="cmsg"><span class="who">' + esc(m.name || "Player") + '</span><span class="when">' + esc(chatTime(m.at)) + '</span>' + (S.admin && m.id ? ' <button class="link" data-chat-del="' + esc(String(m.id)) + '" aria-label="Delete message">Delete</button>' : '') + '<br>' + esc(m.text || "") + '</div>'; }).join("");
   }
   function chatUpdate() {
     if (tab !== "chat") return;
@@ -1537,7 +1548,14 @@ button:active:not(:disabled) { transform: scale(.98); }
   }
   document.getElementById("gate").addEventListener("click", function (e) { var t = e.target.closest("[data-gate]"); if (t) { e.preventDefault(); gateAction(t.getAttribute("data-gate")); } });
   document.getElementById("gate").addEventListener("keydown", function (e) { if (e.key !== "Enter" || e.target.tagName !== "INPUT" || e.target.type === "checkbox") return; var p = document.querySelector("#gate .btn[data-gate]"); if (p) { e.preventDefault(); gateAction(p.getAttribute("data-gate")); } });
-  document.addEventListener("click", function (e) { if (e.target && e.target.id === "acct") { authMode = "account"; gateMsg = ""; undoArmed = false; showGate(); } });
+  document.addEventListener("click", function (e) {
+    var cd = e.target && e.target.closest && e.target.closest("[data-chat-del]"); if (!cd || !S.admin) return;
+    sb.rpc("admin_delete_chat", { p_id: Number(cd.getAttribute("data-chat-del")) }).then(function (r) {
+      if (r.error) { var m = document.getElementById("chatmsg"); if (m) m.textContent = cleanErr(r.error.message); return; }
+      loadChat();
+    });
+  });
+  document.addEventListener("click", function (e) { if (e.target && e.target.id === "acct") { authMode = "account"; gateMsg = ""; undoArmed = false; removeArmed = false; showGate(); } });
   function boot() {
     authMode = "loading"; showGate();
     if (!window.supabase || !window.supabase.createClient) { authMode = "fatal"; gateMsg = "The sign-in service did not load. Check your connection and try again."; showGate(); return; }
