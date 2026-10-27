@@ -7,7 +7,7 @@ const E = (function () { const module = { exports: {} };
    Every rule here is a port of the published page so prices match exactly. */
 
 const CFG = {
-  START_CASH: 10000, DIV_YIELD: 0.01, SPLIT_AT: 60, PX: 0.25, PRICE_FLOOR: 2,
+  START_CASH: 10000, DIV_YIELD: 0.01, SPLIT_AT: 60, PX: 0.25, PRICE_FLOOR: 0.5, MEAN_K: 0,
   REG_WEEKS: 18, LAST_WEEK: 22, REAL_LAST: 6,
   WEEK_NAMES: { 19: 'Wild Card', 20: 'Divisional', 21: 'Conference', 22: 'Super Bowl' },
   SOS_K: 6, SOS_W: 0.4, SOS_N: 4,
@@ -201,6 +201,8 @@ function playWeek(game, ctx) {
     moves.push({ id: p.id, name: p.name, d: delta, pts, mean: p.mean });
     if (oppT && p.mean > 0) recs.push([oppT, p.pos, clamp(pts / p.mean, 0, 2.5)]);
     if (hits.length) winners.push({ id: p.id, hits: hits.map(t => t.k), labels: hits.map(t => t.label), points: hits.reduce((a, t) => a + t.bonus, 0), stat: s });
+    /* the expected score follows the player through the season: a running average that starts from the preseason number (worth MEAN_K games) */
+    if (CFG.MEAN_K > 0 && p.mean > 0) { const n = Math.min(prevLog.length, 18), x = clamp(pts, 0, 2.5 * p.mean); p.mean = r2(Math.max(0.5, p.mean + (x - p.mean) / (CFG.MEAN_K + n + 1))); }
   });
 
   recs.forEach(x => allowRec(g, x[0], x[1], x[2]));
