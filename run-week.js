@@ -76,7 +76,7 @@ function freshGame(rookies) {
 
 /* ---------- schedule strength ---------- */
 function makeCtx(data, random) {
-  return { real: data.real, sched: data.sched, conf: data.conf, rookies: data.rookies, rand: random || Math.random };
+  return { real: data.real, sched: data.sched, conf: data.conf, rookies: data.rookies, liveWeeks: data.liveWeeks || {}, rand: random || Math.random };
 }
 function oppOf(ctx, team, wk) {
   const a = ctx.sched[team];
@@ -172,7 +172,7 @@ function playWeek(game, ctx) {
   const g = game, wk = g.week, feed = [], moves = [], winners = [], splits = [], recs = [], debuted = [];
   if (seasonOver(g)) return { week: wk, moves, winners, splits, debuted, feed, over: true };
   if (wk > CFG.REG_WEEKS && !g.bracket) initBracket(g, ctx);
-  const realWk = wk <= CFG.REAL_LAST;
+  const realWk = wk <= CFG.REAL_LAST || !!(ctx.liveWeeks && ctx.liveWeeks[wk]);
 
   g.players.forEach(p => {
     if (wk > CFG.REG_WEEKS && g.bracket && !g.bracket.plays[p.team]) return;            // eliminated or on a bye: frozen
@@ -246,20 +246,95 @@ const dividend = (shares, points, px) => r2(shares * points * px * CFG.DIV_YIELD
 module.exports = { CFG, TARGETS, BASE, r2, rng, freshPlayers, freshGame, makeCtx, playWeek, outlook, rating, seasonOver, dividend, teamStrength };
 
 return module.exports; })();
+const L = (function () { const module = { exports: {} }; 
+/* Turns the public nflverse weekly stat files into the same stat lines the game already uses.
+   Row layout (same as data/real.json):  [passYds, passTD, rushTD, rushYds, rec, recYds, recTD, fantasyPts]
+   Defense row:                          [sacks, takeaways, defensive/ST TDs, points allowed, 0, 0, 0, fantasyPts] */
+
+const NFL_CODE = { JAC: 'JAX', LAR: 'LA' };            // our team code -> nflverse team code
+const nfl = t => NFL_CODE[t] || t;
+const POS = { QB: 'QB', RB: 'RB', HB: 'RB', FB: 'RB', WR: 'WR', TE: 'TE' };
+
+function parseCsv(text) {
+  const rows = []; let row = [], cell = '', q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) { if (c === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += c; }
+    else if (c === '"') q = true;
+    else if (c === ',') { row.push(cell); cell = ''; }
+    else if (c === '\n') { row.push(cell); cell = ''; if (row.length > 1 || row[0] !== '') rows.push(row); row = []; }
+    else if (c !== '\r') cell += c;
+  }
+  if (cell !== '' || row.length) { row.push(cell); rows.push(row); }
+  const head = rows.shift() || [];
+  return rows.map(r => { const o = {}; head.forEach((h, i) => { o[h] = r[i] === undefined ? '' : r[i]; }); return o; });
+}
+const n = x => (x === '' || x == null ? 0 : +x) || 0;
+const r1 = x => Math.round(x * 10) / 10;
+const norm = s => String(s || '').toLowerCase().replace(/[.'’`]/g, '').replace(/[^a-z0-9]+/g, ' ').replace(/\b(jr|sr|ii|iii|iv|v)\b/g, ' ').replace(/\s+/g, ' ').trim();
+const paBracket = pa => pa === 0 ? 10 : pa <= 6 ? 7 : pa <= 13 ? 4 : pa <= 20 ? 1 : pa <= 27 ? 0 : pa <= 34 ? -1 : -4;
+
+/* players: [{id,name,team,pos}], playerCsv/teamCsv: parsed rows, sched: {team:[opp or '' per week]}, wk: week number.
+   Returns { rows: {playerId: row}, complete, have, need, missing:[teams], unmatched:[names] } */
+function buildWeek(players, playerCsv, teamCsv, sched, wk) {
+  const T = {}; teamCsv.forEach(r => { if (r.season_type === 'REG' && +r.week === wk) T[r.team] = r; });
+  const need = Object.keys(sched).filter(t => sched[t][wk - 1] !== '' && sched[t][wk - 1] != null);
+  const missing = need.filter(t => !T[nfl(t)]);
+  const out = { rows: {}, complete: missing.length === 0 && need.length > 0, have: need.length - missing.length, need: need.length, missing, unmatched: [] };
+
+  const byName = {};
+  playerCsv.forEach(r => {
+    if (r.season_type !== 'REG' || +r.week !== wk) return;
+    const pos = POS[r.position]; if (!pos) return;
+    (byName[norm(r.player_display_name) + '|' + pos] = byName[norm(r.player_display_name) + '|' + pos] || []).push(r);
+  });
+  players.forEach(p => {
+    if (p.pos === 'DEF') {
+      const t = T[nfl(p.team)]; if (!t) return;
+      const o = T[t.opponent_team]; if (!o) return;
+      const pa = 6 * (n(o.passing_tds) + n(o.rushing_tds)) + 3 * n(o.fg_made) + n(o.pat_made) + 2 * (n(o.passing_2pt_conversions) + n(o.rushing_2pt_conversions));
+      const sk = n(t.def_sacks), tk = n(t.def_interceptions) + n(t.fumble_recovery_opp), td = n(t.def_tds) + n(t.special_teams_tds);
+      const blk = n(t.def_punt_blocks) + n(t.def_pat_blocks) + n(t.def_fg_blocks), sf = n(t.def_safeties);
+      out.rows[p.id] = [sk, tk, td, pa, 0, 0, 0, r1(sk + 2 * tk + 6 * td + 2 * sf + 2 * blk + paBracket(pa))];
+      return;
+    }
+    const c = byName[norm(p.name) + '|' + p.pos];
+    if (!c) return;
+    const r = c.find(x => x.team === nfl(p.team)) || c[0];
+    out.rows[p.id] = [n(r.passing_yards), n(r.passing_tds), n(r.rushing_tds), n(r.rushing_yards), n(r.receptions), n(r.receiving_yards), n(r.receiving_tds), r1(n(r.fantasy_points_ppr))];
+  });
+  /* players with no line this week who do appear somewhere in the file under a different spelling are worth a look */
+  const seen = new Set(Object.keys(byName).map(k => k.split('|')[0]));
+  players.forEach(p => { if (p.pos !== 'DEF' && !out.rows[p.id] && !seen.has(norm(p.name)) && sched[p.team] && sched[p.team][wk - 1]) out.unmatched.push(p.name); });
+  return out;
+}
+
+const urls = season => ({
+  player: 'https://github.com/nflverse/nflverse-data/releases/download/stats_player/stats_player_week_' + season + '.csv',
+  team: 'https://github.com/nflverse/nflverse-data/releases/download/stats_team/stats_team_week_' + season + '.csv',
+});
+module.exports = { parseCsv, buildWeek, urls, norm, nfl };
+
+return module.exports; })();
 const R = (function () { const module = { exports: {} }; 
 
 const D = n => DATA[n];
 const data = () => ({ real: D('real'), sched: D('sched'), conf: D('conf'), rookies: D('rookies') });
 
 /* Turns database rows into a game, plays one week, and returns the payload for apply_week. */
-function runWeek(gameRow, playerRows, random) {
+function runWeek(gameRow, playerRows, random, live) {
   const g = {
     week: gameRow.week, alw: gameRow.alw || {}, bracket: gameRow.bracket || null,
     debuts: gameRow.debuts || [], queue: gameRow.queue || [],
     players: playerRows.map(p => ({ id: p.id, name: p.name, team: p.team, pos: p.pos, mean: +p.mean, px: +p.px, hist: p.hist || [], sos: p.sos == null ? null : +p.sos, out: !!p.out, rookie: !!p.rookie, last: p.last || null })),
   };
   const before = new Set(g.players.map(p => p.id));
-  const ev = E.playWeek(g, E.makeCtx(data(), random));
+  const d = data();
+  if (live && live.rows) {                       // real results fetched for this week: merge them over the built-in data
+    d.real = Object.assign({}, d.real); d.liveWeeks = {}; d.liveWeeks[g.week] = true;
+    Object.keys(live.rows).forEach(id => { d.real[id] = Object.assign({}, d.real[id]); d.real[id][g.week] = live.rows[id]; });
+  }
+  const ev = E.playWeek(g, E.makeCtx(d, random));
   return {
     event: ev,
     payload: {
@@ -275,27 +350,49 @@ function runWeek(gameRow, playerRows, random) {
 module.exports = { runWeek };
 
 return module.exports; })();
-// Plays the next week for the whole league. Run it once after each set of games.
-//   SUPABASE_URL=https://xxxx.supabase.co SUPABASE_SERVICE_KEY=... node scripts/run-week.js [--dry]
+// Plays the next week(s) for the whole league.
+//   SUPABASE_URL=https://xxxx.supabase.co SUPABASE_SERVICE_KEY=... [WEEKS=22] [FORCE=1] node scripts/run-week.js [--dry]
+// Weeks 1-6 use the real results built into this file. Weeks 7-18 wait for the real results to be published
+// (nflverse, free) and are never made up. Playoff weeks (19-22) are simulated, one per week.
 const { runWeek } = R;
+
+const SCHED = DATA.sched;
 const url = process.env.SUPABASE_URL, key = process.env.SUPABASE_SERVICE_KEY, dry = process.argv.includes('--dry');
 if (!url || !key) { console.error('Set SUPABASE_URL and SUPABASE_SERVICE_KEY first.'); process.exit(1); }
+const FORCE = process.env.FORCE === '1';
 const H = { apikey: key, Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' };
 const get = async p => { const r = await fetch(url + '/rest/v1/' + p, { headers: H }); if (!r.ok) throw new Error(p + ': ' + r.status + ' ' + await r.text()); return r.json(); };
+const text = async u => { const r = await fetch(u, { redirect: 'follow' }); if (!r.ok) throw new Error('Could not download ' + u + ' (' + r.status + ')'); return r.text(); };
 const weeks = Math.max(1, Math.min(22, parseInt(process.env.WEEKS || '1', 10) || 1));
+const REAL_BUILT_IN = 6, REG = 18;
+let csv = null;
 (async () => {
+  let played = 0;
   for (let i = 0; i < weeks; i++) {
     const [game] = await get('game_state?id=eq.1');
     if (!game) throw new Error('No game_state row. Run seed.sql first.');
-    if (game.week > 22) { console.log('Season is over. Nothing to do.'); return; }
+    if (game.week > 22) { console.log('Season is over. Nothing to do.'); break; }
+    const wk = game.week;
     const players = await get('players?select=*&limit=1000');
-    const { event, payload } = runWeek(game, players, Math.random);
+    let live = null;
+    if (wk > REAL_BUILT_IN && wk <= REG) {
+      if (!csv) { const u = L.urls(game.season); csv = { p: L.parseCsv(await text(u.player)), t: L.parseCsv(await text(u.team)) }; }
+      const b = L.buildWeek(players, csv.p, csv.t, SCHED, wk);
+      if (!b.complete) { console.log('Week', wk, 'real results are not published yet (' + b.have + ' of ' + b.need + ' teams). Waiting; nothing played.'); break; }
+      console.log('Week', wk, 'real results found for', Object.keys(b.rows).length, 'players.', b.unmatched.length ? 'No stat line for: ' + b.unmatched.join(', ') : '');
+      live = b;
+    } else if (wk > REG) {
+      const days = (Date.now() - Date.parse(game.updated_at)) / 864e5;
+      if (days < 5 && !FORCE) { console.log('Playoff week', wk, 'plays about a week after the last one. Waiting; nothing played.'); break; }
+    }
+    const { event, payload } = runWeek(game, players, Math.random, live);
     const top = event.moves[0], low = event.moves[event.moves.length - 1];
     console.log('Week', event.week, '| players moved:', event.moves.length, '| biggest gain:', top && top.name, top && (top.d * 100).toFixed(1) + '%', '| biggest drop:', low && low.name, low && (low.d * 100).toFixed(1) + '%', '| splits:', event.splits.length, '| dividend events:', event.winners.length);
-    if (dry) { console.log('Dry run: nothing was saved.'); return; }
+    if (dry) { console.log('Dry run: nothing was saved.'); break; }
     const r = await fetch(url + '/rest/v1/rpc/apply_week', { method: 'POST', headers: H, body: JSON.stringify({ p: payload }) });
     if (!r.ok) throw new Error('apply_week: ' + r.status + ' ' + await r.text());
-    console.log('Saved.', JSON.stringify(await r.json()));
+    console.log('Saved.', JSON.stringify(await r.json())); played++;
   }
+  console.log('Done. Weeks played this run:', played);
 })().catch(e => { console.error('Failed:', e.message); process.exit(1); });
 
