@@ -1147,7 +1147,7 @@ button:active:not(:disabled) { transform: scale(.98); }
 
   function renderMarket() {
     var chips = ["ALL", "QB", "RB", "WR", "TE", "DEF", "WATCH"].map(function (f) { return '<button class="chip" data-filter="' + f + '" aria-pressed="' + (filter === f) + '">' + (f === "WATCH" ? "\u2605 Watching" : f) + '</button>'; }).join("");
-    var opts = [["price", "Price: high to low"], ["gain", "Biggest gain"], ["drop", "Biggest drop"], ["pts", "Average points"], ["name", "Name A to Z"]].map(function (o) { return '<option value="' + o[0] + '"' + (sortBy === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join("");
+    var opts = [["price", "Price: high to low"], ["pricelow", "Price: low to high"], ["gain", "Biggest gain"], ["drop", "Biggest drop"], ["pts", "Average points"], ["name", "Name A to Z"]].map(function (o) { return '<option value="' + o[0] + '"' + (sortBy === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join("");
     var tools = '<div class="mtools"><input id="msearch" type="search" placeholder="Search players" value="' + esc(searchQ) + '" aria-label="Search players" autocomplete="off"><select id="msort" aria-label="Sort players">' + opts + '</select></div>';
     var left = finalHTML() + recapHTML() + guideHTML() + trendHTML() + '<div class="filters">' + chips + '</div>' + tools + '<div id="plist">' + plistHTML() + '</div>';
     if (!wide()) return adHTML(0) + left;
@@ -1678,7 +1678,7 @@ button:active:not(:disabled) { transform: scale(.98); }
   function starBtn(p) { var on = isWatched(p.id); return '<button class="star' + (on ? ' on' : '') + '" data-star="' + p.id + '" aria-pressed="' + on + '" aria-label="' + (on ? 'Remove ' : 'Watch ') + p.name + '">' + (on ? '\u2605' : '\u2606') + '</button>'; }
   function addTx(t) { (S.txns = S.txns || []).unshift(t); if (S.txns.length > 120) S.txns.length = 120; }
   function sortList(list) {
-    var f = { price: function (a, b) { return price(b) - price(a); }, gain: function (a, b) { return change(b) - change(a); }, drop: function (a, b) { return change(a) - change(b); }, name: function (a, b) { return a.name < b.name ? -1 : 1; }, pts: function (a, b) { return b.mean - a.mean; } }[sortBy] || function (a, b) { return price(b) - price(a); };
+    var f = { price: function (a, b) { return price(b) - price(a); }, pricelow: function (a, b) { return price(a) - price(b); }, gain: function (a, b) { return change(b) - change(a); }, drop: function (a, b) { return change(a) - change(b); }, name: function (a, b) { return a.name < b.name ? -1 : 1; }, pts: function (a, b) { return b.mean - a.mean; } }[sortBy] || function (a, b) { return price(b) - price(a); };
     return list.sort(f);
   }
   function marketList() {
