@@ -1088,7 +1088,8 @@ button:active:not(:disabled) { transform: scale(.98); }
 
   function ticketHTML(p) {
     var h = S.holdings[p.id], own = h ? h.sh : 0, listed = listedShares(p.id);
-    var canBuy = qty > 0 && qty * p.px <= S.cash + 1e-9;
+    var lk = lockInfo(p), isLocked = !!(lk && lk.locked);
+    var canBuy = !isLocked && qty > 0 && qty * p.px <= S.cash + 1e-9;
     var last = p.last;
     var tg = TARGETS[p.pos].map(function (t) {
       var hit = last && last.hits.indexOf(t.k) >= 0;
@@ -1101,7 +1102,7 @@ button:active:not(:disabled) { transform: scale(.98); }
     var c0 = change(p);
     var rng = '<div class="mgrp rng" role="group" aria-label="Chart range"><button class="mchip" data-range="0" aria-pressed="' + (rangeN === 0) + '">Season</button><button class="mchip" data-range="4" aria-pressed="' + (rangeN === 4) + '">Last 4</button></div>';
     return '<div class="ticket">' +
-      '<div class="dhead">' + avatar(p, true) + '<div class="dn"><div class="pname">' + p.name + '</div><div class="pmeta"><span class="pos pos-' + p.pos + '">' + p.pos + '</span>' + teamTag(p.team) + injTag(p) + starBtn(p) + '</div></div><div class="px"><div class="p">$' + fmt(p.px) + '</div><div class="c ' + dir(c0) + '">' + pct(c0) + '</div></div></div>' +
+      '<div class="dhead">' + avatar(p, true) + '<div class="dn"><div class="pname">' + p.name + '</div><div class="pmeta"><span class="pos pos-' + p.pos + '">' + p.pos + '</span>' + teamTag(p.team) + injTag(p) + lockTag(p) + starBtn(p) + '</div></div><div class="px"><div class="p">$' + fmt(p.px) + '</div><div class="c ' + dir(c0) + '">' + pct(c0) + '</div></div></div>' +
       '<div>' + '<div class="chartbar"><span class="k">Price</span>' + rng + '</div>' + spark(hh, 300, 110, col(hh[hh.length - 1] - hh[0])).replace('<svg ', '<svg class="big" ') +
       '<div class="axis"><span>' + (S.week - hh.length < 1 ? 'Preseason' : 'Wk ' + (S.week - hh.length)) + '</span><span>' + (S.week - 1 < 1 ? 'Now' : 'Wk ' + (S.week - 1)) + '</span></div></div>' +
       '<div class="facts">' +
@@ -1121,14 +1122,14 @@ button:active:not(:disabled) { transform: scale(.98); }
       '<div class="order"><label class="k" for="spendin">or spend $</label><input class="qin wide" id="spendin" type="number" inputmode="decimal" min="1" step="1" placeholder="amount" aria-label="Dollars to spend"></div>' +
       '<div class="facts">' +
         '<div class="fact"><div class="k">Price</div><div class="v">$' + fmt(p.px) + '</div><div class="s">per share</div></div>' +
-        '<div class="fact"><div class="k">Buy cost</div><div class="v">$' + fmt(qty * p.px) + '</div><div class="s">' + (canBuy ? 'for ' + fmtSh(qty) + ' sh' : 'not enough cash') + '</div></div>' +
+        '<div class="fact"><div class="k">Buy cost</div><div class="v">$' + fmt(qty * p.px) + '</div><div class="s">' + (canBuy ? 'for ' + fmtSh(qty) + ' sh' : isLocked ? 'locked' : 'not enough cash') + '</div></div>' +
         '<div class="fact"><div class="k">Sell value</div><div class="v">$' + fmt(Math.min(qty, own) * p.px) + '</div><div class="s">' + (own > 0 ? 'for ' + fmtSh(Math.min(qty, own)) + ' sh' : 'none owned') + '</div></div>' +
       '</div>' +
       '<div class="trade">' +
         '<button class="btn buy" data-act="buynow"' + (canBuy ? '' : ' disabled') + '>Buy</button>' +
-        '<button class="btn sell" data-act="sellnow"' + (own > 0 && qty > 0 ? '' : ' disabled') + '>Sell</button>' +
+        '<button class="btn sell" data-act="sellnow"' + (!isLocked && own > 0 && qty > 0 ? '' : ' disabled') + '>Sell</button>' +
       '</div>' +
-      '<div class="pool">Buy or sell any time at the current price. No fees. The price changes when you play the week.</div>' +
+      (isLocked ? '<div class="pool" style="color:var(--warn)">Locked: ' + p.team + '\'s game has started. You can trade this player again after prices update for the week.</div>' : '<div class="pool">Buy or sell at the current price. No fees.' + (lk ? ' Trading on ' + p.team + ' players locks at kickoff (' + whenStr(lk.t) + ') and reopens after prices update.' : '') + '</div>') +
       (mine ? '<div class="orders">' + mine + '</div>' : '') +
       '<div class="msg" role="status" aria-live="polite">' + ticketMsg + '</div>' +
       '</div>';
@@ -1138,7 +1139,7 @@ button:active:not(:disabled) { transform: scale(.98); }
     var c = change(p), open = openId === p.id;
     var bb = p.bids.length ? p.bids[0].px : null, ba = p.asks.length ? p.asks[0].px : null;
     var h = '<div class="item"><div class="row" tabindex="0" role="button" aria-expanded="' + open + '" data-id="' + p.id + '">' +
-      '<div class="pl">' + avatar(p) + '<div><div class="pname">' + p.name + '</div><div class="pmeta"><span class="pos pos-' + p.pos + '">' + p.pos + '</span>' + teamTag(p.team) + (p.rookie ? '<span class="rk">ROOKIE</span>' : '') + injTag(p) + starBtn(p) + '</div></div></div>' +
+      '<div class="pl">' + avatar(p) + '<div><div class="pname">' + p.name + '</div><div class="pmeta"><span class="pos pos-' + p.pos + '">' + p.pos + '</span>' + teamTag(p.team) + (p.rookie ? '<span class="rk">ROOKIE</span>' : '') + injTag(p) + lockTag(p) + starBtn(p) + '</div></div></div>' +
       '<div class="spark">' + spark(p.hist, 64, 28, col(c)) + '</div>' +
       '<div class="px"><div class="p">' + fmt(price(p)) + '</div><div class="c ' + dir(c) + '">' + pct(c) + '</div></div></div>';
     if (open && !wide()) h += ticketHTML(p);
@@ -1211,7 +1212,7 @@ button:active:not(:disabled) { transform: scale(.98); }
   var worldTimer = null, busy = false;
 
   function esc(t) { return String(t).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
-  function cleanErr(m) { m = String(m || "Something went wrong."); return m.replace(/^.*?(Sign in first|That invite code|Pick a name|You already joined|That name is taken|Not enough cash|You do not own|Unknown player|Enter an amount|The season is over|Join the game first|Slow down|Messages are)/, "$1"); }
+  function cleanErr(m) { m = String(m || "Something went wrong."); return m.replace(/^.*?(Sign in first|Trading is closed|That invite code|Pick a name|You already joined|That name is taken|Not enough cash|You do not own|Unknown player|Enter an amount|The season is over|Join the game first|Slow down|Messages are)/, "$1"); }
   function myWorth() { return S.cash + holdingsValue(); }
   function myName() { return S.profile ? S.profile.name : "You"; }
   function emptyState() {
@@ -1230,8 +1231,10 @@ button:active:not(:disabled) { transform: scale(.98); }
       sb.from("players").select("*").limit(1000),
       sb.from("game_state").select("*").eq("id", 1).maybeSingle(),
       sb.from("feed").select("*").order("id", { ascending: false }).limit(40),
-      sb.from("injuries").select("*").limit(1000).then(function (x) { return x; }, function () { return { data: [] }; })
+      sb.from("injuries").select("*").limit(1000).then(function (x) { return x; }, function () { return { data: [] }; }),
+      sb.from("kickoffs").select("*").limit(100).then(function (x) { return x; }, function () { return { data: [] }; })
     ]).then(function (r) {
+      S.kick = {}; ((r[4] && r[4].data) || []).forEach(function (k) { S.kick[k.team] = { wk: k.week, t: k.kickoff }; });
       var pl = rows(r[0]), g = r[1].data, fd = rows(r[2]);
       S.inj = {}; ((r[3] && r[3].data) || []).forEach(function (i) { S.inj[i.player_id] = { c: i.status, part: i.part || "", wk: i.week }; });
       if (!g) throw new Error("The game has not been set up yet.");
@@ -1392,6 +1395,7 @@ button:active:not(:disabled) { transform: scale(.98); }
   function doOrder(act) {
     var p = byId(openId); if (!p || busy) return Promise.resolve();
     if (qty <= 0) { ticketMsg = "Enter an amount first."; return Promise.resolve(); }
+    var li = lockInfo(p); if (li && li.locked) { ticketMsg = "Trading is closed for this player until prices update after this week's games."; return Promise.resolve(); }
     busy = true;
     return sb.rpc("trade", { p_player: p.id, p_side: act === "buynow" ? "buy" : "sell", p_qty: qty }).then(function (r) {
       if (r.error) { ticketMsg = cleanErr(r.error.message); busy = false; return; }
@@ -1509,7 +1513,7 @@ button:active:not(:disabled) { transform: scale(.98); }
       '<p class="note">Sharps Exchange is a free game for friends and family. Everything is play money with no cash value.</p>' +
       sec('The goal', '<p>Finish with the highest net worth. Net worth is your cash plus the value of every share you hold.</p>') +
       sec('Getting started', ul(['Everyone starts with <b>$' + fmt0(START_CASH) + '</b> and the season begins at Week ' + START_WEEK + '.', 'Open the <b>Market</b> tab, tap a player or a team defense, and buy shares.', 'You can buy part of a share. Enter an amount, or type how many dollars to spend.'])) +
-      sec('Buying and selling', ul(['Buy or sell any time at the current price. There are <b>no fees</b>.', 'Prices change once a week, after that week\'s games. Everyone sees the same prices.', 'The lowest a price can go is $2.00.'])) +
+      sec('Buying and selling', ul(['Buy or sell any time at the current price. There are <b>no fees</b>.', 'Prices change once a week, after that week\'s games. Everyone sees the same prices.', 'A player is <b>locked</b> from his team\'s kickoff until prices update after that week\'s games, so nobody can trade on a result that is already known. Players whose games have not started stay open.', 'The lowest a price can go is $2.00.'])) +
       sec('How prices move', ul(['A player who scores above his average rises. A player below average falls. Each weekly move is capped at about +22% or -20%.', 'Every regular-season week uses <b>real 2026 NFL stats</b> (fantasy points, PPR scoring). A week is played only after all of its games are final and the stats are published, usually on Tuesday. The playoff rounds are simulated.', 'A player who did not play (bye, inactive or injured) has no price move that week.', 'Injury tags (OUT, DOUBTFUL, QUESTIONABLE) come from the weekly NFL injury report. They are only a warning. Prices do not move on injury news, and you can still trade the player.', 'Team defenses score on sacks, takeaways, defensive TDs and points allowed.'])) +
       sec('Dividends', '<p>Each bonus point a player earns pays you <b>1% of the share price per share you hold</b>. Dividends go straight to your cash. Bonus points per position:</p><table class="rtab">' + bon + '</table>') +
       sec('Rookies', ul(['Rookies join the market after the draft. The <b>Rookies</b> tab shows who is debuting next and at what price.', 'On debut day a rookie appears on the Market tab with a ROOKIE badge. Buy and sell it any time, like any other player.'])) +
@@ -1629,6 +1633,9 @@ button:active:not(:disabled) { transform: scale(.98); }
     if (p.out) return { c: "Q", part: "" };
     return null;
   }
+  function lockInfo(p) { var k = S.kick && S.kick[p.team]; if (!k || k.wk !== S.week) return null; var t = Date.parse(k.t); return isFinite(t) ? { locked: t <= Date.now(), t: t } : null; }
+  function whenStr(t) { return new Date(t).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" }); }
+  function lockTag(p) { var l = lockInfo(p); return l && l.locked ? '<span class="badge-inj inj-O">LOCKED</span>' : ''; }
   function injTag(p) { var i = injStatus(p); return i ? '<span class="badge-inj inj-' + i.c + '" title="' + (i.part ? i.part : '') + '">' + INJ_NAME[i.c] + (i.part ? ' · ' + i.part.toUpperCase() : '') + '</span>' : ''; }
   /* 2026 regular season schedule: team -> opponent by week ("@" = away, blank = bye) */
   var SCHED = {"NE":["@SEA","PIT","@JAC","@BUF","LV","NYJ","@CHI","@MIA","GB","@DET","","@LAC","BUF","MIN","@KC","@NYJ","DEN","MIA"],"SEA":["NE","@ARI","@WAS","LAC","SF","@DEN","KC","CHI","ARI","@LV","","@SF","DAL","NYG","@PHI","LAR","@CAR","@LAR"],"SF":["@LAR","MIA","ARI","DEN","@SEA","WAS","@ATL","","LV","@DAL","MIN","SEA","@NYG","LAR","@LAC","@KC","PHI","@ARI"],"LAR":["SF","NYG","@DEN","@PHI","BUF","ARI","@LV","LAC","@WAS","@ARI","","GB","KC","@SF","DAL","@SEA","@TB","SEA"],"CHI":["@CAR","MIN","PHI","NYJ","@GB","@ATL","NE","@SEA","TB","","NO","@DET","JAC","@MIA","@BUF","GB","DET","@MIN"],"CAR":["CHI","@ATL","@CLE","DET","","@PHI","TB","@GB","DEN","@NO","BAL","@TB","@MIN","NO","CIN","@PIT","SEA","ATL"],"TB":["@CIN","CLE","MIN","GB","@DAL","PIT","@CAR","ATL","@CHI","","@DET","CAR","LAC","@BAL","NO","@ATL","LAR","@NO"],"CIN":["TB","@HOU","@PIT","JAC","@MIA","","@BAL","TEN","@ATL","PIT","@WAS","NO","@CLE","KC","@CAR","@IND","BAL","CLE"],"NO":["@DET","@BAL","LV","ATL","MIN","@NYG","PIT","","CLE","CAR","@CHI","@CIN","GB","@CAR","@TB","ARI","@ATL","TB"],"DET":["NO","@BUF","NYJ","@CAR","@ARI","","GB","MIN","@MIA","NE","TB","CHI","@ATL","TEN","@MIN","NYG","@CHI","@GB"],"BUF":["@HOU","DET","LAC","NE","@LAR","@LV","","BAL","@MIN","@NYJ","MIA","KC","@NE","@GB","CHI","@DEN","@MIA","NYJ"],"HOU":["BUF","CIN","@IND","DAL","@TEN","@JAC","NYG","","@LAC","@CLE","IND","BAL","@PIT","@WAS","JAC","@PHI","@GB","TEN"],"BAL":["@IND","NO","@DAL","TEN","@ATL","@CLE","CIN","@BUF","JAC","LAC","@CAR","@HOU","","TB","@PIT","CLE","@CIN","PIT"],"IND":["BAL","@KC","HOU","@WAS","@PIT","TEN","@MIN","@JAC","DAL","MIA","@HOU","NYG","","@PHI","@TEN","CIN","@CLE","JAC"],"CLE":["@JAC","@TB","CAR","PIT","@NYJ","BAL","@TEN","@PIT","@NO","HOU","","LV","CIN","ATL","@NYG","@BAL","IND","@CIN"],"JAC":["CLE","@DEN","NE","@CIN","PHI","HOU","","IND","@BAL","@TEN","@NYG","TEN","@CHI","PIT","@HOU","@DAL","WAS","@IND"],"ATL":["@PIT","CAR","@GB","@NO","BAL","CHI","SF","@TB","CIN","KC","","@MIN","DET","@CLE","@WAS","TB","NO","@CAR"],"PIT":["ATL","@NE","CIN","@CLE","IND","@TB","@NO","CLE","","@CIN","@PHI","DEN","HOU","@JAC","BAL","CAR","@TEN","@BAL"],"NYJ":["@TEN","GB","@DET","@CHI","CLE","@NE","MIA","LV","@KC","BUF","@LAC","@MIA","","DEN","@ARI","NE","MIN","@BUF"],"TEN":["NYJ","PHI","@NYG","@BAL","HOU","@IND","CLE","@CIN","","JAC","@DAL","@JAC","WAS","@DET","IND","@LV","PIT","@HOU"],"ARI":["@LAC","SEA","@SF","@NYG","DET","@LAR","DEN","@DAL","@SEA","LAR","@KC","WAS","PHI","","NYJ","@NO","LV","SF"],"LAC":["ARI","LV","@BUF","@SEA","DEN","@KC","","@LAR","HOU","@BAL","NYJ","NE","@TB","@LV","SF","@MIA","KC","@DEN"],"MIA":["@LV","@SF","KC","@MIN","CIN","","@NYJ","NE","DET","@IND","@BUF","NYJ","@DEN","CHI","@GB","LAC","BUF","@NE"],"LV":["MIA","@LAC","@NO","KC","@NE","BUF","LAR","@NYJ","@SF","SEA","@DEN","@CLE","","LAC","DEN","TEN","@ARI","@KC"],"GB":["@MIN","@NYJ","ATL","@TB","CHI","DAL","@DET","CAR","@NE","MIN","","@LAR","@NO","BUF","MIA","@CHI","HOU","DET"],"MIN":["GB","@CHI","@TB","MIA","@NO","","IND","@DET","BUF","@GB","@SF","ATL","CAR","@NE","DET","WAS","@NYJ","CHI"],"WAS":["@PHI","@DAL","SEA","IND","NYG","@SF","","PHI","LAR","@NYG","CIN","@ARI","@TEN","HOU","ATL","@MIN","@JAC","DAL"],"PHI":["WAS","@TEN","@CHI","LAR","@JAC","CAR","DAL","@WAS","NYG","","PIT","@DAL","@ARI","IND","SEA","HOU","@SF","@NYG"],"DAL":["@NYG","WAS","BAL","@HOU","TB","@GB","@PHI","ARI","@IND","SF","TEN","PHI","@SEA","","@LAR","JAC","NYG","@WAS"],"NYG":["DAL","@LAR","TEN","ARI","@WAS","NO","@HOU","","@PHI","WAS","JAC","@IND","SF","@SEA","CLE","@DET","@DAL","PHI"],"DEN":["@KC","JAC","LAR","@SF","@LAC","SEA","@ARI","KC","@CAR","","LV","@PIT","MIA","@NYJ","@LV","BUF","@NE","LAC"],"KC":["DEN","IND","@MIA","@LV","","LAC","@SEA","@DEN","NYJ","@ATL","ARI","@BUF","@LAR","@CIN","NE","SF","@LAC","LV"]};

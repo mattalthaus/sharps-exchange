@@ -329,12 +329,33 @@ function buildInjuries(players, injCsv, wk) {
   return out;
 }
 
+/* Kickoff times for one week. nflverse lists them in US Eastern time; we store real UTC instants. */
+const OURS = { JAX: 'JAC', LA: 'LAR' };                  // nflverse team code -> our code
+function etToIso(day, time) {
+  const [y, m, d] = day.split('-').map(Number), [hh, mm] = time.split(':').map(Number);
+  const fmt = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+  const off = ts => { const p = {}; fmt.formatToParts(new Date(ts)).forEach(x => { p[x.type] = x.value; }); return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute) - ts; };
+  const guess = Date.UTC(y, m - 1, d, hh, mm);
+  let t = guess - off(guess); t = guess - off(t);
+  return new Date(t).toISOString();
+}
+function buildKickoffs(gamesCsv, season, wk) {
+  const out = [];
+  gamesCsv.forEach(g => {
+    if (+g.season !== +season || +g.week !== wk || !g.gameday || !/^\d{1,2}:\d{2}$/.test(g.gametime || '')) return;
+    const iso = etToIso(g.gameday, g.gametime);
+    [g.away_team, g.home_team].forEach(t => out.push({ team: OURS[t] || t, week: wk, kickoff: iso }));
+  });
+  return out;
+}
+
 const urls = season => ({
   player: 'https://github.com/nflverse/nflverse-data/releases/download/stats_player/stats_player_week_' + season + '.csv',
   team: 'https://github.com/nflverse/nflverse-data/releases/download/stats_team/stats_team_week_' + season + '.csv',
+  games: 'https://github.com/nflverse/nflverse-data/releases/download/schedules/games.csv',
   inj: 'https://github.com/nflverse/nflverse-data/releases/download/injuries/injuries_' + season + '.csv',
 });
-module.exports = { parseCsv, buildWeek, buildInjuries, urls, norm, nfl };
+module.exports = { parseCsv, buildWeek, buildInjuries, buildKickoffs, etToIso, urls, norm, nfl };
 
 return module.exports; })();
 const R = (function () { const module = { exports: {} }; 
@@ -387,6 +408,22 @@ const text = async u => { const r = await fetch(u, { redirect: 'follow' }); if (
 const weeks = Math.max(1, Math.min(22, parseInt(process.env.WEEKS || '1', 10) || 1));
 const REAL_BUILT_IN = 6, REG = 18;
 let csv = null;
+// Writes this week's kickoff times so the database can lock a team's players from kickoff until the week is played.
+async function refreshKickoffs() {
+  try {
+    const [game] = await get('game_state?id=eq.1'); if (!game || game.week > 22) return;
+    const rows = L.buildKickoffs(L.parseCsv(await text(L.urls(game.season).games)), game.season, game.week);
+    if (dry) { console.log('Kickoff times for week', game.week + ':', rows.length / 2, 'games (dry run, not saved)'); return; }
+    if (!rows.length) { console.log('No kickoff times published for week', game.week + ' yet.'); }
+    const del = await fetch(url + '/rest/v1/kickoffs?team=neq.__none__', { method: 'DELETE', headers: H });
+    if (!del.ok) throw new Error('clear: ' + del.status + ' ' + await del.text());
+    if (rows.length) {
+      const ins = await fetch(url + '/rest/v1/kickoffs', { method: 'POST', headers: Object.assign({ Prefer: 'return=minimal' }, H), body: JSON.stringify(rows) });
+      if (!ins.ok) throw new Error('save: ' + ins.status + ' ' + await ins.text());
+      console.log('Kickoff locks for week', game.week + ':', rows.length / 2, 'games.');
+    }
+  } catch (e) { console.log('Kickoff locks not updated:', e.message); }
+}
 // Writes this week's injury tags. Never stops the job if something goes wrong.
 async function refreshInjuries() {
   try {
@@ -430,6 +467,7 @@ async function refreshInjuries() {
     if (!r.ok) throw new Error('apply_week: ' + r.status + ' ' + await r.text());
     console.log('Saved.', JSON.stringify(await r.json())); played++;
   }
+  await refreshKickoffs();
   await refreshInjuries();
   console.log('Done. Weeks played this run:', played);
 })().catch(e => { console.error('Failed:', e.message); process.exit(1); });
