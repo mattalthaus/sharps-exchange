@@ -1,7 +1,7 @@
 name: Play the week
 on:
   schedule:
-    - cron: '0 13 * * 2,3,4'
+    - cron: '0 13 * * 2,3,4,5'
   workflow_dispatch:
     inputs:
       weeks:
