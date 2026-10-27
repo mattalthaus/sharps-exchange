@@ -309,11 +309,32 @@ function buildWeek(players, playerCsv, teamCsv, sched, wk) {
   return out;
 }
 
+/* Injury report rows for one week: [{player_id, week, status: 'O'|'D'|'Q', part}] for players we have. */
+const STATUS = { out: 'O', doubtful: 'D', questionable: 'Q' };
+function buildInjuries(players, injCsv, wk) {
+  const idx = {};
+  injCsv.forEach(r => {
+    if (r.season_type !== 'REG' || +r.week !== wk) return;
+    const st = STATUS[String(r.report_status || '').trim().toLowerCase()]; if (!st) return;
+    const pos = POS[r.position]; if (!pos) return;
+    (idx[norm(r.full_name) + '|' + pos] = idx[norm(r.full_name) + '|' + pos] || []).push({ st, team: r.team, part: String(r.report_primary_injury || '').trim() });
+  });
+  const out = [];
+  players.forEach(p => {
+    if (p.pos === 'DEF') return;
+    const c = idx[norm(p.name) + '|' + p.pos]; if (!c) return;
+    const r = c.find(x => x.team === nfl(p.team)) || c[0];
+    out.push({ player_id: p.id, week: wk, status: r.st, part: r.part.slice(0, 40) });
+  });
+  return out;
+}
+
 const urls = season => ({
   player: 'https://github.com/nflverse/nflverse-data/releases/download/stats_player/stats_player_week_' + season + '.csv',
   team: 'https://github.com/nflverse/nflverse-data/releases/download/stats_team/stats_team_week_' + season + '.csv',
+  inj: 'https://github.com/nflverse/nflverse-data/releases/download/injuries/injuries_' + season + '.csv',
 });
-module.exports = { parseCsv, buildWeek, urls, norm, nfl };
+module.exports = { parseCsv, buildWeek, buildInjuries, urls, norm, nfl };
 
 return module.exports; })();
 const R = (function () { const module = { exports: {} }; 
@@ -366,6 +387,22 @@ const text = async u => { const r = await fetch(u, { redirect: 'follow' }); if (
 const weeks = Math.max(1, Math.min(22, parseInt(process.env.WEEKS || '1', 10) || 1));
 const REAL_BUILT_IN = 6, REG = 18;
 let csv = null;
+// Writes this week's injury tags. Never stops the job if something goes wrong.
+async function refreshInjuries() {
+  try {
+    const [game] = await get('game_state?id=eq.1'); if (!game || game.week > 22) return;
+    const players = await get('players?select=id,name,team,pos&limit=1000');
+    const rows = L.buildInjuries(players, L.parseCsv(await text(L.urls(game.season).inj)), game.week);
+    if (dry) { console.log('Injury tags for week', game.week + ':', rows.length, '(dry run, not saved)'); return; }
+    const del = await fetch(url + '/rest/v1/injuries?player_id=neq.__none__', { method: 'DELETE', headers: H });
+    if (!del.ok) throw new Error('clear: ' + del.status + ' ' + await del.text());
+    if (rows.length) {
+      const ins = await fetch(url + '/rest/v1/injuries', { method: 'POST', headers: Object.assign({ Prefer: 'return=minimal' }, H), body: JSON.stringify(rows) });
+      if (!ins.ok) throw new Error('save: ' + ins.status + ' ' + await ins.text());
+    }
+    console.log('Injury tags for week', game.week + ':', rows.length);
+  } catch (e) { console.log('Injury tags not updated:', e.message); }
+}
 (async () => {
   let played = 0;
   for (let i = 0; i < weeks; i++) {
@@ -393,6 +430,7 @@ let csv = null;
     if (!r.ok) throw new Error('apply_week: ' + r.status + ' ' + await r.text());
     console.log('Saved.', JSON.stringify(await r.json())); played++;
   }
+  await refreshInjuries();
   console.log('Done. Weeks played this run:', played);
 })().catch(e => { console.error('Failed:', e.message); process.exit(1); });
 

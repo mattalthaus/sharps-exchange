@@ -1229,9 +1229,11 @@ button:active:not(:disabled) { transform: scale(.98); }
     return Promise.all([
       sb.from("players").select("*").limit(1000),
       sb.from("game_state").select("*").eq("id", 1).maybeSingle(),
-      sb.from("feed").select("*").order("id", { ascending: false }).limit(40)
+      sb.from("feed").select("*").order("id", { ascending: false }).limit(40),
+      sb.from("injuries").select("*").limit(1000).then(function (x) { return x; }, function () { return { data: [] }; })
     ]).then(function (r) {
       var pl = rows(r[0]), g = r[1].data, fd = rows(r[2]);
+      S.inj = {}; ((r[3] && r[3].data) || []).forEach(function (i) { S.inj[i.player_id] = { c: i.status, part: i.part || "", wk: i.week }; });
       if (!g) throw new Error("The game has not been set up yet.");
       S.week = g.week; S.bracket = g.bracket || null; S.alw = g.alw || {};
       S.players = pl.map(function (d) {
@@ -1508,7 +1510,7 @@ button:active:not(:disabled) { transform: scale(.98); }
       sec('The goal', '<p>Finish with the highest net worth. Net worth is your cash plus the value of every share you hold.</p>') +
       sec('Getting started', ul(['Everyone starts with <b>$' + fmt0(START_CASH) + '</b> and the season begins at Week ' + START_WEEK + '.', 'Open the <b>Market</b> tab, tap a player or a team defense, and buy shares.', 'You can buy part of a share. Enter an amount, or type how many dollars to spend.'])) +
       sec('Buying and selling', ul(['Buy or sell any time at the current price. There are <b>no fees</b>.', 'Prices change once a week, after that week\'s games. Everyone sees the same prices.', 'The lowest a price can go is $2.00.'])) +
-      sec('How prices move', ul(['A player who scores above his average rises. A player below average falls. Each weekly move is capped at about +22% or -20%.', 'Every regular-season week uses <b>real 2026 NFL stats</b> (fantasy points, PPR scoring). A week is played only after all of its games are final and the stats are published, usually on Tuesday. The playoff rounds are simulated.', 'A player who did not play (bye, inactive or injured) has no price move that week.', 'Injuries are not tracked live. A player who misses a game simply has no price move that week, and you can still trade him.', 'Team defenses score on sacks, takeaways, defensive TDs and points allowed.'])) +
+      sec('How prices move', ul(['A player who scores above his average rises. A player below average falls. Each weekly move is capped at about +22% or -20%.', 'Every regular-season week uses <b>real 2026 NFL stats</b> (fantasy points, PPR scoring). A week is played only after all of its games are final and the stats are published, usually on Tuesday. The playoff rounds are simulated.', 'A player who did not play (bye, inactive or injured) has no price move that week.', 'Injury tags (OUT, DOUBTFUL, QUESTIONABLE) come from the weekly NFL injury report. They are only a warning. Prices do not move on injury news, and you can still trade the player.', 'Team defenses score on sacks, takeaways, defensive TDs and points allowed.'])) +
       sec('Dividends', '<p>Each bonus point a player earns pays you <b>1% of the share price per share you hold</b>. Dividends go straight to your cash. Bonus points per position:</p><table class="rtab">' + bon + '</table>') +
       sec('Rookies', ul(['Rookies join the market after the draft. The <b>Rookies</b> tab shows who is debuting next and at what price.', 'On debut day a rookie appears on the Market tab with a ROOKIE badge. Buy and sell it any time, like any other player.'])) +
       sec('Schedule strength', '<p>Prices react to results compared with what was expected against that opponent. A big game against a tough defense lifts a price more than the same game against a soft one. Prices also move a little when the next four games get easier or harder. Each player page shows a <b>Soft</b>, <b>Even</b> or <b>Tough</b> schedule.</p>') +
@@ -1622,9 +1624,9 @@ button:active:not(:disabled) { transform: scale(.98); }
   var INJ = {"qb4":{"2":"Q|Back"},"qb17":{"6":"O|Calf"},"qb19":{"5":"O|Ankle","6":"O|Ankle"},"qb22":{"2":"O|Glute"},"qb23":{"3":"O|Elbow","4":"O|Elbow"},"qb29":{"3":"O|Hamstring","4":"O|Hamstring","5":"Q|Hamstring","6":"Q|Hamstring"},"qb30":{"1":"O|Knee","2":"O|Knee"},"rb8":{"3":"Q|Shoulder"},"rb11":{"5":"Q|Ankle"},"rb18":{"5":"Q|Knee"},"rb19":{"5":"O|Thumb","6":"O|Thumb"},"rb20":{"6":"Q|Ankle"},"rb22":{"1":"Q|Ankle","6":"O|Ankle"},"rb27":{"6":"O|Groin"},"rb28":{"6":"O|Groin"},"rb33":{"4":"O|Quadricep","5":"O|Quadricep","6":"O|Quadricep"},"rb34":{"2":"Q|Hamstring"},"rb36":{"1":"Q|Knee","5":"Q|Back","6":"Q|Back"},"rb40":{"4":"O|Shoulder"},"rb45":{"1":"O|Ankle","6":"Q|Ankle"},"wr5":{"2":"Q|Hamstring","6":"Q|Illness"},"wr8":{"2":"D|Hamstring","3":"Q|Hamstring","4":"Q|Hamstring","5":"Q|Foot"},"wr10":{"5":"Q|Concussion"},"wr12":{"2":"Q|Hip","3":"D|Hip"},"wr13":{"3":"Q|Hip","4":"Q|Ribs","6":"Q|Ribs"},"wr15":{"5":"Q|Groin"},"wr17":{"1":"Q|Knee"},"wr21":{"4":"O|Ankle","5":"Q|Ankle"},"wr22":{"2":"O|Hamstring","3":"O|Hamstring"},"wr24":{"6":"O|Hamstring"},"wr28":{"5":"O|Hamstring","6":"Q|Hamstring"},"wr30":{"3":"Q|Ankle","4":"Q|Quadricep"},"wr34":{"3":"Q|Ankle"},"wr38":{"4":"O|Hamstring","5":"O|Hamstring"},"wr39":{"5":"Q|Back"},"wr45":{"6":"O|Finger"},"wr48":{"4":"Q|Hamstring","5":"Q|Hamstring"},"wr49":{"1":"Q|Calf"},"wr54":{"4":"Q|Not injury related - resting player","5":"Q|Not injury related - resting player"},"wr55":{"6":"O|Hamstring"},"wr57":{"6":"O|Hamstring"},"wr59":{"3":"Q|Shoulder","5":"Q|Shoulder","6":"Q|Shoulder"},"wr60":{"2":"Q|Rib","4":"Q|Foot","5":"Q|Foot"},"te5":{"1":"O|Knee","2":"D|Knee","3":"Q|Knee"},"te6":{"6":"Q|Groin"},"te8":{"6":"Q|Calf"},"te22":{"4":"Q|Back","6":"Q|Concussion"},"te25":{"3":"O|Knee","4":"O|Knee"},"r6":{"2":"O|Ankle","6":"Q|Ankle"},"r7":{"4":"O|Chest"},"r8":{"2":"O|Ankle"},"r10":{"1":"O|Hamstring","6":"O|Quadricep"},"r16":{"1":"O|Hamstring"},"r18":{"3":"O|Ankle","4":"O|Ankle","5":"O|Ankle"},"r21":{"6":"Q|Wrist"},"r25":{"2":"Q|Groin"},"r27":{"3":"Q|Thigh","4":"Q|Thigh"}};
   var INJ_NAME = { O: "OUT", D: "DOUBTFUL", Q: "QUESTIONABLE" };
   function injStatus(p) {
-    var r = INJ[p.id] && INJ[p.id][S.week];
-    if (r) { var a = r.split("|"); return { c: a[0], part: a[1] || "" }; }
-    if (S.week > INJ_LAST && p.out) return { c: "Q", part: "" };
+    var r = S.inj && S.inj[p.id];
+    if (r && r.wk === S.week) return { c: r.c, part: r.part };
+    if (p.out) return { c: "Q", part: "" };
     return null;
   }
   function injTag(p) { var i = injStatus(p); return i ? '<span class="badge-inj inj-' + i.c + '" title="' + (i.part ? i.part : '') + '">' + INJ_NAME[i.c] + (i.part ? ' · ' + i.part.toUpperCase() : '') + '</span>' : ''; }
