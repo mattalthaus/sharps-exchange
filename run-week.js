@@ -351,13 +351,33 @@ function buildKickoffs(gamesCsv, season, wk) {
   return out;
 }
 
+/* Players who changed teams: compare each player's team with the team on his latest stat line. */
+function buildTeamMoves(players, playerCsv) {
+  const idx = {};
+  playerCsv.forEach(r => {
+    if (r.season_type !== 'REG') return;
+    const pos = POS[r.position]; if (!pos) return;
+    const k = norm(r.player_display_name) + '|' + pos, w = +r.week, c = idx[k] || (idx[k] = { week: 0, teams: new Set() });
+    if (w > c.week) { c.week = w; c.teams = new Set([r.team]); } else if (w === c.week) c.teams.add(r.team);
+  });
+  const moves = [];
+  players.forEach(p => {
+    if (p.pos === 'DEF') return;
+    const c = idx[norm(p.name) + '|' + p.pos];
+    if (!c || c.teams.has(nfl(p.team)) || c.teams.size !== 1) return;
+    const to = [...c.teams][0];
+    moves.push({ id: p.id, name: p.name, from: p.team, to: OURS[to] || to });
+  });
+  return moves;
+}
+
 const urls = season => ({
   player: 'https://github.com/nflverse/nflverse-data/releases/download/stats_player/stats_player_week_' + season + '.csv',
   team: 'https://github.com/nflverse/nflverse-data/releases/download/stats_team/stats_team_week_' + season + '.csv',
   games: 'https://github.com/nflverse/nflverse-data/releases/download/schedules/games.csv',
   inj: 'https://github.com/nflverse/nflverse-data/releases/download/injuries/injuries_' + season + '.csv',
 });
-module.exports = { parseCsv, buildWeek, buildInjuries, buildKickoffs, etToIso, urls, norm, nfl };
+module.exports = { parseCsv, buildWeek, buildInjuries, buildKickoffs, buildTeamMoves, etToIso, urls, norm, nfl };
 
 return module.exports; })();
 const R = (function () { const module = { exports: {} }; 
@@ -410,6 +430,23 @@ const text = async u => { const r = await fetch(u, { redirect: 'follow' }); if (
 const weeks = Math.max(1, Math.min(22, parseInt(process.env.WEEKS || '1', 10) || 1));
 const REAL_BUILT_IN = 6, REG = 18;
 let csv = null;
+// Keeps each player's team current after trades, using the team on his latest stat line.
+async function refreshTeams() {
+  try {
+    const [game] = await get('game_state?id=eq.1'); if (!game || game.week > 22) return;
+    const players = await get('players?select=id,name,team,pos&limit=1000');
+    const rows = csv ? csv.p : L.parseCsv(await text(L.urls(game.season).player));
+    const moves = L.buildTeamMoves(players, rows);
+    if (!moves.length) { console.log('No team changes.'); return; }
+    for (const m of moves) {
+      console.log('Team change:', m.name, m.from, '->', m.to + (dry ? ' (dry run, not saved)' : ''));
+      if (dry) continue;
+      const r = await fetch(url + '/rest/v1/players?id=eq.' + encodeURIComponent(m.id), { method: 'PATCH', headers: Object.assign({ Prefer: 'return=minimal' }, H), body: JSON.stringify({ team: m.to }) });
+      if (!r.ok) throw new Error('team update: ' + r.status + ' ' + await r.text());
+      await fetch(url + '/rest/v1/feed', { method: 'POST', headers: Object.assign({ Prefer: 'return=minimal' }, H), body: JSON.stringify({ week: game.week, kind: 'info', text: m.name + ' is now with ' + m.to + '.' }) });
+    }
+  } catch (e) { console.log('Team changes not updated:', e.message); }
+}
 // Writes this week's kickoff times so the database can lock a team's players from kickoff until the week is played.
 async function refreshKickoffs() {
   try {
@@ -469,6 +506,7 @@ async function refreshInjuries() {
     if (!r.ok) throw new Error('apply_week: ' + r.status + ' ' + await r.text());
     console.log('Saved.', JSON.stringify(await r.json())); played++;
   }
+  await refreshTeams();
   await refreshKickoffs();
   await refreshInjuries();
   console.log('Done. Weeks played this run:', played);

@@ -533,7 +533,7 @@ button:active:not(:disabled) { transform: scale(.98); }
 
   <div class="foot">
     <span>Player stats come from public nflverse data. Game dollars ($) have no cash value.</span>
-    <button class="link" id="reset">Sign out</button>
+    <button class="link" id="acct">Account</button> <button class="link" id="reset">Sign out</button>
   </div>
 </div>
 
@@ -1212,7 +1212,7 @@ button:active:not(:disabled) { transform: scale(.98); }
   var worldTimer = null, busy = false;
 
   function esc(t) { return String(t).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
-  function cleanErr(m) { m = String(m || "Something went wrong."); return m.replace(/^.*?(Sign in first|Trading is closed|That invite code|Pick a name|You already joined|That name is taken|Not enough cash|You do not own|Unknown player|Enter an amount|The season is over|Join the game first|Slow down|Messages are)/, "$1"); }
+  function cleanErr(m) { m = String(m || "Something went wrong."); return m.replace(/^.*?(Sign in first|Not allowed|There is nothing|No player with|Password must|Trading is closed|That invite code|Pick a name|You already joined|That name is taken|Not enough cash|You do not own|Unknown player|Enter an amount|The season is over|Join the game first|Slow down|Messages are)/, "$1"); }
   function myWorth() { return S.cash + holdingsValue(); }
   function myName() { return S.profile ? S.profile.name : "You"; }
   function emptyState() {
@@ -1301,6 +1301,7 @@ button:active:not(:disabled) { transform: scale(.98); }
   }
 
   /* ---------- sign-in screen ---------- */
+  var undoArmed = false;
   function gateEl() { return document.getElementById("gate"); }
   function showGate() {
     var g = gateEl(), h = '<div class="card" role="dialog" aria-modal="true" aria-labelledby="gth">';
@@ -1311,6 +1312,23 @@ button:active:not(:disabled) { transform: scale(.98); }
     if (authMode === "loading") h += '<h2 id="gth">Sharps Exchange</h2><p class="pool">Loading...</p>';
     else if (authMode === "fatal") h += '<h2 id="gth">Cannot connect</h2><p class="pool">' + esc(gateMsg) + '</p><button class="btn buy" data-gate="reload">Try again</button>';
     else if (authMode === "join") h += '<h2 id="gth">Pick your name</h2><p class="pool">This is the name other players see. You start with $' + fmt0(START_CASH) + ' in play money.</p><label class="pmeta" style="display:block;margin-top:10px">Display name<br><input id="gt-name" maxlength="24" autocomplete="nickname" ' + fld + '></label>' + codeF + rules + msg + '<button class="btn buy" data-gate="join">Join the league</button><p class="pool" style="margin-top:12px"><button class="link" data-gate="signout">Sign out</button></p>';
+    else if (authMode === "account") {
+      var ok = gateMsg && /^OK:/.test(gateMsg), mtxt = gateMsg ? esc(gateMsg.replace(/^OK:/, "")) : "";
+      var amsg = '<div class="pool" id="gt-msg" role="status" style="margin:8px 0;color:' + (ok ? "var(--up)" : "var(--warn)") + '">' + mtxt + '</div>';
+      h += '<h2 id="gth">Your account</h2><p class="pool">Signed in as ' + esc((S.profile && S.profile.name) || "") + '.</p>' +
+        '<label class="pmeta" style="display:block;margin-top:10px">New password (6 or more characters)<br><input id="gt-newpw" type="password" autocomplete="new-password" ' + fld + '></label>' +
+        '<button class="btn buy" data-gate="acct-pw" style="margin-top:10px">Change my password</button>';
+      if (S.admin) {
+        h += '<div style="border-top:1px solid var(--line);margin-top:18px;padding-top:12px"><div class="k" style="font-weight:700">Admin</div>' +
+          '<p class="pool">Reset a player\'s password. Tell them the new one, and they can change it themselves under Account.</p>' +
+          '<label class="pmeta" style="display:block;margin-top:6px">Player name<br><input id="gt-rname" maxlength="24" autocomplete="off" ' + fld + '></label>' +
+          '<label class="pmeta" style="display:block;margin-top:10px">Temporary password<br><input id="gt-rpw" autocomplete="off" ' + fld + '></label>' +
+          '<button class="btn buy" data-gate="adm-reset" style="margin-top:10px">Reset their password</button>' +
+          '<p class="pool" style="margin-top:16px">Undo last week puts prices, cash, shares and the week counter back to just before the last week was played. Trades made since then are undone too.</p>' +
+          '<button class="btn sell" data-gate="adm-undo" style="margin-top:6px">' + (undoArmed ? "Tap again to undo the last week" : "Undo last week") + '</button></div>';
+      }
+      h += amsg + '<p class="pool" style="margin-top:12px"><button class="link" data-gate="acct-close">Close</button></p>';
+    }
     else if (authMode === "signup") h += '<h2 id="gth">Create your account</h2><label class="pmeta" style="display:block;margin-top:6px">Display name<br><input id="gt-name" maxlength="24" autocomplete="nickname" ' + fld + '></label><label class="pmeta" style="display:block;margin-top:10px">Email<br><input id="gt-email" type="email" autocomplete="email" ' + fld + '></label><label class="pmeta" style="display:block;margin-top:10px">Password (6 or more characters)<br><input id="gt-pass" type="password" autocomplete="new-password" ' + fld + '></label>' + codeF + rules + msg + '<button class="btn buy" data-gate="signup">Create account</button><p class="pool" style="margin-top:12px">Already have one? <button class="link" data-gate="switch">Sign in</button></p>';
     else h += '<h2 id="gth">Sign in</h2><label class="pmeta" style="display:block;margin-top:6px">Email<br><input id="gt-email" type="email" autocomplete="email" ' + fld + '></label><label class="pmeta" style="display:block;margin-top:10px">Password<br><input id="gt-pass" type="password" autocomplete="current-password" ' + fld + '></label>' + msg + '<button class="btn buy" data-gate="signin" style="margin-top:10px">Sign in</button><p class="pool" style="margin-top:12px">New here? <button class="link" data-gate="switch">Create an account</button></p>';
     g.innerHTML = h + '</div>'; g.hidden = false;
@@ -1335,6 +1353,8 @@ button:active:not(:disabled) { transform: scale(.98); }
         if (pendc) { var c = document.getElementById("gt-code"); if (c) c.value = pendc; }
         return;
       }
+      S.admin = false;
+      sb.rpc("is_admin").then(function (r) { S.admin = !!(r && r.data === true); }, function () {});
       hideGate(); render(); startTimers();
     }).catch(function (e) { authMode = "fatal"; gateMsg = cleanErr(e && e.message); showGate(); });
   }
@@ -1352,6 +1372,31 @@ button:active:not(:disabled) { transform: scale(.98); }
   function gateAction(a) {
     if (gateBusy) return;
     if (a === "reload") { location.reload(); return; }
+    if (a === "acct-close") { undoArmed = false; gateMsg = ""; hideGate(); return; }
+    if (a === "acct-pw") {
+      var np = document.getElementById("gt-newpw").value;
+      if (np.length < 6) { gateMsg = "Use at least 6 characters."; showGate(); return; }
+      gateBusy = true;
+      sb.auth.updateUser({ password: np }).then(function (r) { gateBusy = false; gateMsg = r && r.error ? r.error.message : "OK:Password changed."; showGate(); }, function () { gateBusy = false; gateMsg = "Could not reach the server. Try again."; showGate(); });
+      return;
+    }
+    if (a === "adm-reset") {
+      var rn = gv("gt-rname"), rp = document.getElementById("gt-rpw").value;
+      if (!rn || rp.length < 6) { gateMsg = "Enter the player's name and a password of at least 6 characters."; showGate(); return; }
+      gateBusy = true;
+      sb.rpc("admin_reset_password", { p_name: rn, p_new: rp }).then(function (r) { gateBusy = false; gateMsg = r.error ? cleanErr(r.error.message) : "OK:Password reset for " + rn + ". Tell them the new one."; showGate(); }, function () { gateBusy = false; gateMsg = "Could not reach the server. Try again."; showGate(); });
+      return;
+    }
+    if (a === "adm-undo") {
+      if (!undoArmed) { undoArmed = true; gateMsg = ""; showGate(); return; }
+      undoArmed = false; gateBusy = true;
+      sb.rpc("undo_last_week").then(function (r) {
+        gateBusy = false;
+        if (r.error) { gateMsg = cleanErr(r.error.message); showGate(); return; }
+        gateMsg = "OK:Week undone. Reloading..."; showGate(); setTimeout(function () { location.reload(); }, 900);
+      }, function () { gateBusy = false; gateMsg = "Could not reach the server. Try again."; showGate(); });
+      return;
+    }
     if (a === "switch") { authMode = authMode === "signin" ? "signup" : "signin"; gateMsg = ""; showGate(); return; }
     if (a === "signout") { sb.auth.signOut().then(function () { location.reload(); }); return; }
     if (a === "signin") {
@@ -1492,6 +1537,7 @@ button:active:not(:disabled) { transform: scale(.98); }
   }
   document.getElementById("gate").addEventListener("click", function (e) { var t = e.target.closest("[data-gate]"); if (t) { e.preventDefault(); gateAction(t.getAttribute("data-gate")); } });
   document.getElementById("gate").addEventListener("keydown", function (e) { if (e.key !== "Enter" || e.target.tagName !== "INPUT" || e.target.type === "checkbox") return; var p = document.querySelector("#gate .btn[data-gate]"); if (p) { e.preventDefault(); gateAction(p.getAttribute("data-gate")); } });
+  document.addEventListener("click", function (e) { if (e.target && e.target.id === "acct") { authMode = "account"; gateMsg = ""; undoArmed = false; showGate(); } });
   function boot() {
     authMode = "loading"; showGate();
     if (!window.supabase || !window.supabase.createClient) { authMode = "fatal"; gateMsg = "The sign-in service did not load. Check your connection and try again."; showGate(); return; }
