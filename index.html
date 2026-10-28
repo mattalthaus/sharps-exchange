@@ -5,6 +5,12 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#0f6b4f">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Sharps">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <style>:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0;font:14px system-ui,sans-serif}img{max-width:100%}[hidden]{display:none!important}</style>
 <title>Sharps Exchange</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%20120%20120%22%20width%3D%22120%22%20height%3D%22120%22%20role%3D%22img%22%20aria-label%3D%22Sharps%20Exchange%20logo%22%3E%3Crect%20width%3D%22120%22%20height%3D%22120%22%20rx%3D%2226%22%20fill%3D%22%230f6b4f%22/%3E%3Cpath%20d%3D%22M82%2040c-3-11-14-15-24-15-14%200-23%207-23%2018%200%2024%2052%2011%2052%2038%200%2012-11%2019-26%2019-13%200-24-6-27-18%22%20fill%3D%22none%22%20stroke%3D%22%23fff%22%20stroke-width%3D%2212%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22/%3E%3Cpath%20d%3D%22M84%2018l18%200%200%2018%22%20fill%3D%22none%22%20stroke%3D%22%237ee0b0%22%20stroke-width%3D%227%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22/%3E%3Cpath%20d%3D%22M102%2018L82%2038%22%20fill%3D%22none%22%20stroke%3D%22%237ee0b0%22%20stroke-width%3D%227%22%20stroke-linecap%3D%22round%22/%3E%3C/svg%3E">
@@ -275,6 +281,17 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .rng { gap: 2px; }
 .nwchart { margin-top: 14px; border: 1px solid var(--line); background: var(--surface); padding: 10px 12px 6px; }
 .nwchart .big { width: 100%; height: 90px; display: block; }
+.lc { width: 100%; height: auto; display: block; overflow: visible; }
+.lc text { font-family: var(--body); font-size: 9.5px; fill: var(--muted); }
+.lc .g { stroke: var(--line); stroke-width: 1; }
+.lc .ln { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.lc .you { stroke-width: 3; }
+.lkey { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; margin-top: 6px; }
+.lkey span { display: inline-flex; align-items: center; gap: 5px; }
+.lkey i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+:root { --s1: #2563a8; --s2: #c2571a; --s3: #7a4fb5; --s4: #a87908; --s5: #0b7f86; --s6: #b0408a; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --s1: #6aa5ee; --s2: #f0955a; --s3: #b394e6; --s4: #e6c15a; --s5: #4fcfcf; --s6: #e87fc0; } }
+:root[data-theme="dark"] { --s1: #6aa5ee; --s2: #f0955a; --s3: #b394e6; --s4: #e6c15a; --s5: #4fcfcf; --s6: #e87fc0; }
 .toast { position: fixed; left: 50%; bottom: max(20px, env(safe-area-inset-bottom, 0px)); transform: translate(-50%, 20px); background: var(--fg); color: var(--bg); padding: 10px 16px; border-radius: 6px; font-size: 14px; opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; z-index: 30; max-width: calc(100vw - 32px); }
 .toast.on { opacity: 1; transform: translate(-50%, 0); }
 .modal { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 40; }
@@ -1048,7 +1065,7 @@ button:active:not(:disabled) { transform: scale(.98); }
       '<div class="hcells"><div class="hcell"><span>Cash</span><b>$' + fmt0(S.cash) + '</b>' + (lc > 0 ? '<em>+$' + fmt0(lc) + ' in bids</em>' : '') + '</div><div class="hcell"><span>Holdings</span><b>$' + fmt0(hv) + '</b></div></div>';
     var seg = ""; for (var w = 1; w <= LAST_WEEK; w++) seg += '<i class="' + (w < S.week ? 'done' : w === S.week ? 'cur' : '') + (w === REG_WEEKS + 1 ? ' gap' : '') + '" title="' + weekLabel(w) + '"></i>';
     document.getElementById("season").innerHTML = '<div class="trk" role="img" aria-label="Season progress: ' + weekLabel(Math.min(S.week, LAST_WEEK)) + ' of ' + LAST_WEEK + '">' + seg + '</div><div class="trkcap"><span>Regular season</span><span>Playoffs</span></div>';
-    document.getElementById("runline").textContent = seasonOver() ? "Season complete. Thanks for playing." : "Prices update for everyone after each week's games. Next up: " + weekLabel(S.week) + ".";
+    document.getElementById("runline").textContent = statusLine();
   }
 
   /* ticket helpers */
@@ -1103,8 +1120,7 @@ button:active:not(:disabled) { transform: scale(.98); }
     var rng = '<div class="mgrp rng" role="group" aria-label="Chart range"><button class="mchip" data-range="0" aria-pressed="' + (rangeN === 0) + '">Season</button><button class="mchip" data-range="4" aria-pressed="' + (rangeN === 4) + '">Last 4</button></div>';
     return '<div class="ticket">' +
       '<div class="dhead">' + avatar(p, true) + '<div class="dn"><div class="pname">' + p.name + '</div><div class="pmeta"><span class="pos pos-' + p.pos + '">' + p.pos + '</span>' + teamTag(p.team) + injTag(p) + lockTag(p) + starBtn(p) + '</div></div><div class="px"><div class="p">$' + fmt(p.px) + '</div><div class="c ' + dir(c0) + '">' + pct(c0) + '</div></div></div>' +
-      '<div>' + '<div class="chartbar"><span class="k">Price</span>' + rng + '</div>' + spark(hh, 300, 110, col(hh[hh.length - 1] - hh[0])).replace('<svg ', '<svg class="big" ') +
-      '<div class="axis"><span>' + (S.week - hh.length < 1 ? 'Preseason' : 'Wk ' + (S.week - hh.length)) + '</span><span>' + (S.week - 1 < 1 ? 'Now' : 'Wk ' + (S.week - 1)) + '</span></div></div>' +
+      '<div>' + '<div class="chartbar"><span class="k">Price</span>' + rng + '</div>' + lineChart({ series: [{ v: hh, color: col(hh[hh.length - 1] - hh[0]), name: 'Price' }], labels: hh.map(function (_, i) { var wk = S.week - hh.length + i; return wk < 1 ? 'Pre' : 'W' + wk; }), fmt: function (v) { return '$' + v.toFixed(2); }, h: 150, aria: p.name + ' price by week' }) + '</div>' +
       '<div class="facts">' +
         '<div class="fact"><div class="k">High</div><div class="v">$' + fmt(hi) + '</div></div>' +
         '<div class="fact"><div class="k">Low</div><div class="v">$' + fmt(lo) + '</div></div>' +
@@ -1179,7 +1195,7 @@ button:active:not(:disabled) { transform: scale(.98); }
     var sum = '<div class="summary"><span>Bonuses collected <b>$' + fmt0(S.bonusTotal) + '</b></span>' + (pending.length ? '<span>Rookie shares pending <b>' + fmtSh(pending.reduce(function (a, o) { return a + o.mine; }, 0)) + '</b></span>' : '') + '</div>';
     var nwh = (S.nwHist || [START_CASH]).slice(); nwh[nwh.length - 1] = r2(myWorth());
     if (nwh.length < 2) nwh.push(nwh[0]);
-    sum = '<div class="nwchart"><div class="chartbar"><span class="k">Net worth by week</span><span class="num">$' + fmt0(nwh[nwh.length - 1]) + '</span></div>' + spark(nwh, 300, 90, col(nwh[nwh.length - 1] - nwh[0])).replace('<svg ', '<svg class="big" ') + '</div>' + sum;
+    sum = '<div class="nwchart"><div class="chartbar"><span class="k">Net worth by week</span><span class="num">$' + fmt0(nwh[nwh.length - 1]) + '</span></div>' + lineChart({ series: [{ v: nwh, color: col(nwh[nwh.length - 1] - nwh[0]), name: 'Net worth' }], labels: nwh.map(function (_, i) { return i === 0 ? 'Start' : 'W' + i; }), fmt: function (v) { return '$' + fmt0(v); }, h: 140, aria: 'Your net worth by week' }) + '</div>' + sum;
     var uo = userOrders();
     var ords = uo.length ? '<div class="sect">Open orders</div><div class="list">' + uo.map(function (x) {
       return '<div class="item"><div class="oline pad"><span><b>' + x.p.name + '</b><br><span class="pool">' + (x.o.side === "bid" ? 'Bid, waiting for a seller' : 'Listed, waiting for a buyer') + '</span></span><span class="num">' + fmtSh(x.o.q) + ' @ ' + fmt(x.o.px) + '</span><button class="mini" data-cancel="' + x.o.oid + '">Cancel</button></div></div>';
@@ -1225,6 +1241,59 @@ button:active:not(:disabled) { transform: scale(.98); }
   function uiPrefs() { try { return JSON.parse(localStorage.getItem("sx-ui") || "{}"); } catch (e) { return {}; } }
 
   /* ---------- loading data ---------- */
+  /* A small line chart with a value axis, week labels and an end dot. series: [{ v: [numbers or null], color, name, you }] */
+  function lineChart(o) {
+    var W = 320, H = o.h || 140, L = 46, R = 12, T = 10, B = 20, all = [];
+    o.series.forEach(function (s) { s.v.forEach(function (v) { if (v != null && isFinite(v)) all.push(v); }); });
+    if (!all.length || !o.labels.length) return "";
+    var lo = Math.min.apply(null, all), hi = Math.max.apply(null, all);
+    if (hi - lo < 1e-9) { lo -= 1; hi += 1; } var pad = (hi - lo) * 0.1; lo -= pad; hi += pad;
+    var n = o.labels.length, X = function (i) { return n === 1 ? L + (W - L - R) / 2 : L + i / (n - 1) * (W - L - R); }, Y = function (v) { return T + (1 - (v - lo) / (hi - lo)) * (H - T - B); };
+    var out = '<svg class="lc" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + esc(o.aria || "Chart") + '">';
+    [lo + pad, (lo + hi) / 2, hi - pad].forEach(function (v) { var y = Y(v).toFixed(1); out += '<line class="g" x1="' + L + '" x2="' + (W - R) + '" y1="' + y + '" y2="' + y + '"/><text x="' + (L - 5) + '" y="' + (+y + 3) + '" text-anchor="end">' + esc(o.fmt(v)) + '</text>'; });
+    var step = Math.max(1, Math.ceil(n / 6));
+    o.labels.forEach(function (t, i) { if ((i % step === 0 && n - 1 - i >= step) || i === n - 1) out += '<text x="' + X(i).toFixed(1) + '" y="' + (H - 5) + '" text-anchor="' + (i === 0 ? "start" : i === n - 1 ? "end" : "middle") + '">' + esc(t) + '</text>'; });
+    o.series.forEach(function (s) {
+      var seg = [], segs = [];
+      s.v.forEach(function (v, i) { if (v == null || !isFinite(v)) { if (seg.length) segs.push(seg); seg = []; } else seg.push(X(i).toFixed(1) + "," + Y(v).toFixed(1)); });
+      if (seg.length) segs.push(seg);
+      segs.forEach(function (g) { if (g.length > 1) out += '<polyline class="ln' + (s.you ? " you" : "") + '" style="stroke:' + s.color + '" points="' + g.join(" ") + '"/>'; });
+      var li = -1; s.v.forEach(function (v, i) { if (v != null && isFinite(v)) li = i; });
+      if (li >= 0) out += '<circle cx="' + X(li).toFixed(1) + '" cy="' + Y(s.v[li]).toFixed(1) + '" r="' + (s.you ? 4 : 3) + '" style="fill:' + s.color + '"/>';
+    });
+    return out + '</svg>';
+  }
+  /* installable app: remember the browser's install offer, and register the service worker once the page has loaded */
+  var installEv = null;
+  window.addEventListener("beforeinstallprompt", function (e) { e.preventDefault(); installEv = e; });
+  window.addEventListener("appinstalled", function () { installEv = null; });
+  window.addEventListener("load", function () { try { if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register("sw.js").catch(function () {}); } catch (e) {} });
+  function isInstalled() { try { return window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true; } catch (e) { return false; } }
+  function installHTML() {
+    if (isInstalled()) return "";
+    var ios = /iphone|ipad|ipod/i.test(navigator.userAgent || "");
+    return '<div style="border-top:1px solid var(--line);margin-top:18px;padding-top:12px"><div class="k" style="font-weight:700">Get the app</div>' +
+      '<p class="pool">Put Sharps Exchange on your home screen so it opens like an app, full screen, with its own icon.</p>' +
+      (installEv ? '<button class="btn buy" data-gate="install" style="margin-top:6px">Install the app</button>' :
+        '<p class="pool">' + (ios ? 'On iPhone: tap the Share button in Safari, then Add to Home Screen.' : 'On Android: open the browser menu, then tap Install app or Add to Home screen.') + '</p>') + '</div>';
+  }
+  function ago(t) {
+    var m = Math.round((Date.now() - Date.parse(t)) / 60000); if (!isFinite(m)) return "";
+    if (m < 2) return "just now"; if (m < 90) return m + " min ago";
+    var h = Math.round(m / 60); if (h < 36) return h + " hr ago";
+    return Math.round(h / 24) + " days ago";
+  }
+  function statusLine() {
+    if (seasonOver()) return "Season complete. Thanks for playing.";
+    var s = "Prices update after each week's real games. Next up: " + weekLabel(S.week) + ".";
+    if (S.upd && S.week > 1) s += " Last update " + ago(S.upd) + ".";
+    if (S.note) s += " " + S.note;
+    if (S.checked) {
+      var d = (Date.now() - Date.parse(S.checked)) / 864e5;
+      s += d > 6 ? " Heads up: the weekly check has not run for " + Math.round(d) + " days, so updates may be delayed." : " Checked " + ago(S.checked) + ".";
+    }
+    return s;
+  }
   function rows(r) { if (r.error) throw new Error(r.error.message); return r.data || []; }
   function loadWorld() {
     return Promise.all([
@@ -1238,7 +1307,7 @@ button:active:not(:disabled) { transform: scale(.98); }
       var pl = rows(r[0]), g = r[1].data, fd = rows(r[2]);
       S.inj = {}; ((r[3] && r[3].data) || []).forEach(function (i) { S.inj[i.player_id] = { c: i.status, part: i.part || "", wk: i.week }; });
       if (!g) throw new Error("The game has not been set up yet.");
-      S.week = g.week; S.bracket = g.bracket || null; S.alw = g.alw || {};
+      S.week = g.week; S.bracket = g.bracket || null; S.alw = g.alw || {}; S.upd = g.updated_at || null; S.note = g.status_note || ""; S.checked = g.checked_at || null;
       S.players = pl.map(function (d) {
         var p = { id: d.id, name: d.name, team: d.team, pos: d.pos, mean: +d.mean, px: +d.px, fv: +d.px, F: 600, cInv: 600, bids: [], asks: [], hist: (d.hist || []).map(Number), out: !!d.out, rookie: !!d.rookie, sos: d.sos, last: null };
         if (d.last) {
@@ -1330,7 +1399,7 @@ button:active:not(:disabled) { transform: scale(.98); }
           '<p class="pool" style="margin-top:16px">Undo last week puts prices, cash, shares and the week counter back to just before the last week was played. Trades made since then are undone too.</p>' +
           '<button class="btn sell" data-gate="adm-undo" style="margin-top:6px">' + (undoArmed ? "Tap again to undo the last week" : "Undo last week") + '</button></div>';
       }
-      h += amsg + '<p class="pool" style="margin-top:12px"><button class="link" data-gate="acct-close">Close</button></p>';
+      h += installHTML() + amsg + '<p class="pool" style="margin-top:12px"><button class="link" data-gate="acct-close">Close</button></p>';
     }
     else if (authMode === "recover") h += '<h2 id="gth">Choose a new password</h2><p class="pool">Pick a new password for your account (6 or more characters).</p><label class="pmeta" style="display:block;margin-top:6px">New password<br><input id="gt-newpw" type="password" autocomplete="new-password" ' + fld + '></label>' + msg + '<button class="btn buy" data-gate="recover-save" style="margin-top:10px">Save password</button>';
     else if (authMode === "signup") h += '<h2 id="gth">Create your account</h2><label class="pmeta" style="display:block;margin-top:6px">Display name<br><input id="gt-name" maxlength="24" autocomplete="nickname" ' + fld + '></label><label class="pmeta" style="display:block;margin-top:10px">Email<br><input id="gt-email" type="email" autocomplete="email" ' + fld + '></label><label class="pmeta" style="display:block;margin-top:10px">Password (6 or more characters)<br><input id="gt-pass" type="password" autocomplete="new-password" ' + fld + '></label>' + codeF + rules + msg + '<button class="btn buy" data-gate="signup">Create account</button><p class="pool" style="margin-top:12px">Already have one? <button class="link" data-gate="switch">Sign in</button></p>';
@@ -1409,6 +1478,7 @@ button:active:not(:disabled) { transform: scale(.98); }
       }, function () { gateBusy = false; gateMsg = "Could not reach the server. Try again."; showGate(); });
       return;
     }
+    if (a === "install") { if (installEv) { var ev = installEv; installEv = null; ev.prompt(); showGate(); } return; }
     if (a === "forgot") {
       var fe = gv("gt-email");
       if (!fe) { gateMsg = "Type your email above first, then tap Forgot password."; showGate(); return; }
@@ -1497,8 +1567,8 @@ button:active:not(:disabled) { transform: scale(.98); }
   /* ---------- league ---------- */
   function loadBoard() {
     var w = lgWeek == null ? Math.max(S.week - 1, 0) : lgWeek;
-    return Promise.all([sb.from("profiles").select("user_id,name"), sb.from("net_worth_hist").select("user_id,week,worth").in("week", [Math.max(w - 1, 0), w]), sb.rpc("recent_trades", { p_limit: 15 }).then(function (x) { return x; }, function () { return { data: [] }; })]).then(function (r) {
-      board.profiles = r[0].data || []; board.rows = r[1].data || []; board.trades = (r[2] && r[2].data) || []; board.w = w; if (tab === "board") render();
+    return Promise.all([sb.from("profiles").select("user_id,name"), sb.from("net_worth_hist").select("user_id,week,worth").in("week", [Math.max(w - 1, 0), w]), sb.rpc("recent_trades", { p_limit: 15 }).then(function (x) { return x; }, function () { return { data: [] }; }), sb.from("net_worth_hist").select("user_id,week,worth").limit(3000).then(function (x) { return x; }, function () { return { data: [] }; })]).then(function (r) {
+      board.profiles = r[0].data || []; board.rows = r[1].data || []; board.trades = (r[2] && r[2].data) || []; board.all = (r[3] && r[3].data) || []; board.w = w; if (tab === "board") render();
     }).catch(function () { board.w = w; board.profiles = []; board.rows = []; if (tab === "board") render(); });
   }
   function podiumHTML(season, w) {
@@ -1507,6 +1577,19 @@ button:active:not(:disabled) { transform: scale(.98); }
     return '<div class="recap" style="margin-top:12px"><div class="rh"><b>' + esc(top[0].name) + ' wins the league</b></div><div class="pool" style="margin-top:4px">Final net worth $' + fmt0(top[0].v) + ' (' + (ret >= 0 ? '+' : '') + ret.toFixed(1) + '%). Thanks for playing.</div><div class="list" style="margin-top:8px">' + top.map(function (r, i) {
       return '<div class="item"><div class="oline pad"><span><b>' + names[i] + ': ' + esc(r.name) + '</b>' + (r.you ? ' <span class="pool">you</span>' : '') + '</span><span class="num">$' + fmt0(r.v) + '</span></div></div>';
     }).join("") + '</div></div>';
+  }
+  /* net worth by week for the leaders, plus you */
+  function raceHTML(w) {
+    if (w < 1 || board.profiles.length < 2) return "";
+    var byU = {}; (board.all || []).forEach(function (r) { if (r.week <= w) (byU[r.user_id] = byU[r.user_id] || {})[r.week] = +r.worth; });
+    var list = board.profiles.filter(function (p) { return byU[p.user_id] && byU[p.user_id][w] != null; }).map(function (p) { return { id: p.user_id, name: p.name, you: !!(user && p.user_id === user.id), now: byU[p.user_id][w] }; });
+    if (list.length < 2) return "";
+    list.sort(function (a, b) { return b.now - a.now; });
+    var pick = list.slice(0, 5); if (!pick.some(function (x) { return x.you; })) { var me = list.filter(function (x) { return x.you; })[0]; if (me) pick.push(me); }
+    var labels = []; for (var k = 0; k <= w; k++) labels.push(k === 0 ? "Start" : "W" + k);
+    var series = pick.map(function (x, i) { return { name: x.name, you: x.you, color: "var(--s" + (i + 1) + ")", v: labels.map(function (_, k2) { var v = byU[x.id][k2]; return v == null ? null : v; }) }; });
+    return '<div class="sect">The race</div><div class="nwchart" style="margin-top:0">' + lineChart({ series: series, labels: labels, fmt: function (v) { return "$" + fmt0(v); }, h: 170, aria: "Net worth by week for the top players" }) +
+      '<div class="lkey">' + series.map(function (s) { return '<span><i style="background:' + s.color + '"></i>' + esc(s.name) + (s.you ? " (you)" : "") + '</span>'; }).join("") + '</div></div>';
   }
   function tradesHTML() {
     var t = board.trades || []; if (!t.length) return "";
@@ -1538,7 +1621,7 @@ button:active:not(:disabled) { transform: scale(.98); }
       '<div class="pool" style="margin-top:8px">Everyone shares the same prices and the same week. Standings update after each week is played.</div>' +
       '<div class="mtools" style="margin-top:10px"><label class="pool" for="lgweek" style="align-self:center">Standings as of</label><select id="lgweek" aria-label="Standings as of week" style="max-width:none;flex:1">' + opts + '</select></div></div>';
     var divs = '<div class="note">Dividends pay by performance. Each week every bonus point a player earns pays 1% of the share price to everyone holding that player. Game dollars only, so there is no real money involved.</div>';
-    return head + podiumHTML(season, w) + '<div class="sect">' + (w >= LAST_WEEK ? 'Final standings' : 'Season standings') + '</div>' + (season.length ? table(season, function (r) { return r.v - START_CASH; }, function (v) { return "$" + fmt0(v); }) : '<div class="empty"><strong>No standings yet</strong>Check back after the next week is played.</div>') +
+    return head + podiumHTML(season, w) + raceHTML(w) + '<div class="sect">' + (w >= LAST_WEEK ? 'Final standings' : 'Season standings') + '</div>' + (season.length ? table(season, function (r) { return r.v - START_CASH; }, function (v) { return "$" + fmt0(v); }) : '<div class="empty"><strong>No standings yet</strong>Check back after the next week is played.</div>') +
       '<div class="sect">' + (w === 0 ? 'Week return' : weekLabel(w) + ' return') + '</div>' + table(weekly, function (r) { return r.v; }, pctF) +
       (behind.length ? '<div class="sect">Joined later</div><div class="list">' + behind.map(function (r) { return '<div class="item"><div class="oline pad"><span><b>' + esc(r.name) + '</b></span><span class="pool">not at this week</span></div></div>'; }).join("") + '</div>' : '') + tradesHTML() + divs;
   }

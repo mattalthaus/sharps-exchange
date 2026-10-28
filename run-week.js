@@ -506,7 +506,7 @@ const get = async p => { const r = await fetch(url + '/rest/v1/' + p, { headers:
 const text = async u => { const r = await fetch(u, { redirect: 'follow' }); if (!r.ok) throw new Error('Could not download ' + u + ' (' + r.status + ')'); return r.text(); };
 const weeks = Math.max(1, Math.min(22, parseInt(process.env.WEEKS || '1', 10) || 1));
 const REAL_BUILT_IN = 6, REG = 18;
-let csv = null, gamesCsv = null;
+let csv = null, gamesCsv = null, note = '';
 const getGames = async season => gamesCsv || (gamesCsv = L.parseCsv(await text(L.urls(season).games)));
 // Keeps each player's team current after trades, using the team on his latest stat line.
 async function refreshTeams() {
@@ -524,6 +524,15 @@ async function refreshTeams() {
       await fetch(url + '/rest/v1/feed', { method: 'POST', headers: Object.assign({ Prefer: 'return=minimal' }, H), body: JSON.stringify({ week: game.week, kind: 'info', text: m.name + ' is now with ' + m.to + '.' }) });
     }
   } catch (e) { console.log('Team changes not updated:', e.message); }
+}
+// Leaves a short status note and the time of this check on the game row, so the app can show when things last ran.
+async function writeStatus() {
+  if (dry) return;
+  try {
+    const r = await fetch(url + '/rest/v1/game_state?id=eq.1', { method: 'PATCH', headers: Object.assign({ Prefer: 'return=minimal' }, H), body: JSON.stringify({ status_note: note, checked_at: new Date().toISOString() }) });
+    if (!r.ok) throw new Error(r.status + ' ' + await r.text());
+    console.log('Status note saved:', note || '(none)');
+  } catch (e) { console.log('Status note not saved:', e.message); }
 }
 // Keeps the playoff picture (who is alive, who plays this week) in line with the real games.
 async function refreshBracket() {
@@ -581,14 +590,14 @@ async function refreshInjuries() {
     if (wk > REAL_BUILT_IN && wk <= REG) {
       if (!csv) { const u = L.urls(game.season); csv = { p: L.parseCsv(await text(u.player)), t: L.parseCsv(await text(u.team)) }; }
       const b = L.buildWeek(players, csv.p, csv.t, SCHED, wk);
-      if (!b.complete) { console.log('Week', wk, 'real results are not published yet (' + b.have + ' of ' + b.need + ' teams). Waiting; nothing played.'); break; }
+      if (!b.complete) { note = 'Waiting for real Week ' + wk + ' results (' + b.have + ' of ' + b.need + ' teams published).'; console.log('Week', wk, 'real results are not published yet (' + b.have + ' of ' + b.need + ' teams). Waiting; nothing played.'); break; }
       console.log('Week', wk, 'real results found for', Object.keys(b.rows).length, 'players.', b.unmatched.length ? 'No stat line for: ' + b.unmatched.join(', ') : '');
       live = b;
     } else if (wk > REG) {
       if (!csv) { const u = L.urls(game.season); csv = { p: L.parseCsv(await text(u.player)), t: L.parseCsv(await text(u.team)) }; }
       const gm = await getGames(game.season);
       const b = L.buildPlayoffWeek(players, csv.p, csv.t, gm, game.season, wk);
-      if (!b.complete) { console.log('Playoff week', wk, 'real results are not final yet (' + b.games.filter(g => g.done).length + ' of ' + b.games.length + ' games, ' + b.have + ' of ' + b.need + ' teams). Waiting; nothing played.'); break; }
+      if (!b.complete) { note = 'Waiting for the ' + ({ 19: 'Wild Card', 20: 'Divisional', 21: 'Conference', 22: 'Super Bowl' }[wk]) + ' games to finish.'; console.log('Playoff week', wk, 'real results are not final yet (' + b.games.filter(g => g.done).length + ' of ' + b.games.length + ' games, ' + b.have + ' of ' + b.need + ' teams). Waiting; nothing played.'); break; }
       b.bracket = L.buildBracket(gm, game.season, CONF, wk + 1);
       b.feed = L.playoffFeed(b.games, wk);
       console.log('Playoff week', wk, 'real results found for', Object.keys(b.rows).length, 'players.');
@@ -606,6 +615,7 @@ async function refreshInjuries() {
   await refreshTeams();
   await refreshKickoffs();
   await refreshInjuries();
+  await writeStatus();
   console.log('Done. Weeks played this run:', played);
 })().catch(e => { console.error('Failed:', e.message); process.exit(1); });
 
