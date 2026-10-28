@@ -22,6 +22,23 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           WEEKS: ${{ github.event.inputs.weeks || '22' }}
+      - name: Back up the game data (encrypted)
+        if: always()
+        continue-on-error: true
+        run: node backup.js
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+      - name: Keep the backup for 90 days
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: sharps-backup
+          path: backup/*.enc
+          retention-days: 90
+          if-no-files-found: ignore
       - name: Keep the schedule alive
         continue-on-error: true
         run: |
