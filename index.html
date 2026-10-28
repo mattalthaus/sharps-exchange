@@ -1567,8 +1567,12 @@ button:active:not(:disabled) { transform: scale(.98); }
   /* ---------- league ---------- */
   function loadBoard() {
     var w = lgWeek == null ? Math.max(S.week - 1, 0) : lgWeek;
-    return Promise.all([sb.from("profiles").select("user_id,name"), sb.from("net_worth_hist").select("user_id,week,worth").in("week", [Math.max(w - 1, 0), w]), sb.rpc("recent_trades", { p_limit: 15 }).then(function (x) { return x; }, function () { return { data: [] }; }), sb.from("net_worth_hist").select("user_id,week,worth").limit(3000).then(function (x) { return x; }, function () { return { data: [] }; })]).then(function (r) {
-      board.profiles = r[0].data || []; board.rows = r[1].data || []; board.trades = (r[2] && r[2].data) || []; board.all = (r[3] && r[3].data) || []; board.w = w; if (tab === "board") render();
+    return Promise.all([sb.from("profiles").select("user_id,name"), sb.from("net_worth_hist").select("user_id,week,worth").in("week", [Math.max(w - 1, 0), w]), sb.rpc("recent_trades", { p_limit: 15 }).then(function (x) { return x; }, function () { return { data: [] }; })]).then(function (r) {
+      board.profiles = r[0].data || []; board.rows = r[1].data || []; board.trades = (r[2] && r[2].data) || []; board.all = []; board.w = w; if (tab === "board") render();
+      /* the race chart needs every week for only the leaders and you: asking for just those keeps the answer small however many people play */
+      var at = {}; board.rows.forEach(function (x) { if (x.week === w) at[x.user_id] = +x.worth; });
+      var ids = Object.keys(at).sort(function (a, b) { return at[b] - at[a]; }).slice(0, 5); if (user && ids.indexOf(user.id) < 0 && at[user.id] != null) ids.push(user.id);
+      if (ids.length > 1 && w >= 1) sb.from("net_worth_hist").select("user_id,week,worth").in("user_id", ids).limit(500).then(function (x) { board.all = (x && x.data) || []; if (tab === "board" && board.w === w) render(); }, function () {});
     }).catch(function () { board.w = w; board.profiles = []; board.rows = []; if (tab === "board") render(); });
   }
   function podiumHTML(season, w) {
