@@ -1225,15 +1225,19 @@ button:active:not(:disabled) { transform: scale(.98); }
   var sb = null, user = null, authMode = "signin", gateMsg = "", gateBusy = false;
   var lgWeek = null, board = { w: null, profiles: [], rows: [] };
   var chat = { msgs: [], ready: false, status: "", last: 0, timer: null };
-  var worldTimer = null, busy = false;
+  var worldTimer = null, busy = false, gateExtra = false, invite = "", lgKey = "sx-league";
+  try { invite = (new URLSearchParams(location.search).get("join") || "").trim().slice(0, 40); } catch (e) {}
+  function canMod() { return !!(S.admin || S.owner); }
+  function stripInvite() { invite = ""; try { history.replaceState(null, "", location.pathname); } catch (e) {} }
+  function setFeed() { S.feed = (S.feedAll || []).filter(function (f) { return f.league_id == null || f.league_id === S.lg; }).map(function (f) { return { wk: f.week, kind: f.kind, text: f.text }; }); }
 
   function esc(t) { return String(t).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
-  function cleanErr(m) { m = String(m || "Something went wrong."); return m.replace(/^.*?(Sign in first|Not allowed|There is nothing|No player with|Password must|Trading is closed|That invite code|Pick a name|You already joined|That name is taken|Not enough cash|You do not own|Unknown player|Enter an amount|The season is over|Join the game first|Slow down|Messages are|You cannot remove)/, "$1"); }
+  function cleanErr(m) { m = String(m || "Something went wrong."); return m.replace(/^.*?(Sign in first|Not allowed|There is nothing|No player with|Password must|Trading is closed|That invite code|Pick a name|You already joined|That name is taken|Not enough cash|You do not own|Unknown player|Enter an amount|The season is over|Join the game first|Slow down|Messages are|You cannot remove|That creator code|League names|Creator codes|You already run|You are not in that|Choose a league|That name is in)/, "$1"); }
   function myWorth() { return S.cash + holdingsValue(); }
   function myName() { return S.profile ? S.profile.name : "You"; }
   function emptyState() {
     return { cash: 0, week: 1, players: [], holdings: {}, oid: 0, tc: 0, ipos: [], queue: [], bonusTotal: 0, house: { fees: 0, trades: 0, volume: 0, pool: 0, paid: 0 }, rate: 0, poolPct: 1, lastV: null,
-      feed: [], txns: [], nwHist: [START_CASH], nwMark: START_CASH, nwMarkWk: 1, bracket: null, alw: {}, watch: {}, profile: null, recap: null, guideDone: false };
+      feed: [], txns: [], nwHist: [START_CASH], nwMark: START_CASH, nwMarkWk: 1, bracket: null, alw: {}, watch: {}, profile: null, leagues: [], lg: null, lgName: "", lgCode: "", owner: false, recap: null, guideDone: false };
   }
   var S = emptyState();
   var loaded = false;
@@ -1319,33 +1323,40 @@ button:active:not(:disabled) { transform: scale(.98); }
       });
       S.ipos = (g.debuts || []).map(function (d) { var r0 = d.r; return { id: r0[0], name: r0[1], team: r0[2], pos: r0[3], pick: r0[4], mean: r0[5], offer: r2(r0[6] * 0.25), cd: d.cd, mine: 0 }; });
       S.queue = g.queue || [];
-      S.feed = fd.map(function (f) { return { wk: f.week, kind: f.kind, text: f.text }; });
+      S.feedAll = fd; setFeed();
     });
   }
   function loadMine() {
-    return Promise.all([
-      sb.from("profiles").select("*").eq("user_id", user.id).maybeSingle(),
-      sb.from("accounts").select("*").eq("user_id", user.id).maybeSingle(),
-      sb.from("holdings").select("*").eq("user_id", user.id),
-      sb.from("transactions").select("*").eq("user_id", user.id).order("id", { ascending: false }).limit(120),
-      sb.from("net_worth_hist").select("*").eq("user_id", user.id).order("week", { ascending: true }),
-      sb.from("watch").select("player_id").eq("user_id", user.id)
-    ]).then(function (r) {
-      var prof = r[0].data, acc = r[1].data;
-      if (r[0].error) throw new Error(r[0].error.message);
-      if (!prof || !acc) { S.profile = null; return false; }
-      S.profile = { name: prof.name, rules: true };
-      S.cash = +acc.cash; S.bonusTotal = +acc.bonus_total;
-      S.holdings = {}; rows(r[2]).forEach(function (h) { if (+h.sh > 0.004) S.holdings[h.player_id] = { sh: +h.sh, cost: +h.cost }; });
-      S.txns = rows(r[3]).map(function (t) { var p = byId(t.player_id); return { wk: t.week, t: t.kind, id: t.player_id, name: p ? p.name : t.player_id, sh: +t.sh, px: +t.px, amt: +t.amt }; });
-      var hist = rows(r[4]), byW = {}; hist.forEach(function (h) { byW[h.week] = +h.worth; });
-      var arr = [], last = START_CASH, first = hist.length ? +hist[0].worth : START_CASH;
-      for (var w = 0; w <= Math.max(S.week - 1, 0); w++) { if (byW[w] != null) last = byW[w]; else if (!arr.length) last = first; arr.push(last); }
-      S.nwHist = arr; S.nwMark = arr[arr.length - 1]; S.nwMarkWk = S.week;
-      S.watch = {}; rows(r[5]).forEach(function (w2) { S.watch[w2.player_id] = 1; });
-      var pr = uiPrefs(); S.guideDone = !!pr.guide || S.txns.some(function (t) { return t.t === "buy"; });
-      S.recap = buildRecap(pr.recap || 0);
-      return true;
+    return sb.rpc("my_leagues").then(function (lr) {
+      if (lr.error) throw new Error(lr.error.message);
+      var L = lr.data || []; S.leagues = L;
+      if (!L.length) { S.profile = null; S.lg = null; return false; }
+      var want = null; try { want = +localStorage.getItem(lgKey); } catch (e) {}
+      var cur = L.filter(function (l) { return l.league_id === want; })[0] || L[0];
+      S.lg = cur.league_id; S.lgName = cur.name; S.lgCode = cur.code; S.owner = !!cur.is_owner; setFeed();
+      return Promise.all([
+        sb.from("accounts").select("*").eq("user_id", user.id).eq("league_id", S.lg).maybeSingle(),
+        sb.from("holdings").select("*").eq("user_id", user.id).eq("league_id", S.lg),
+        sb.from("transactions").select("*").eq("user_id", user.id).eq("league_id", S.lg).order("id", { ascending: false }).limit(120),
+        sb.from("net_worth_hist").select("*").eq("user_id", user.id).eq("league_id", S.lg).order("week", { ascending: true }),
+        sb.from("watch").select("player_id").eq("user_id", user.id)
+      ]).then(function (r) {
+        var acc = r[0].data;
+        if (r[0].error) throw new Error(r[0].error.message);
+        if (!acc) { S.profile = null; return false; }
+        S.profile = { name: acc.display_name, rules: true };
+        S.cash = +acc.cash; S.bonusTotal = +acc.bonus_total;
+        S.holdings = {}; rows(r[1]).forEach(function (h) { if (+h.sh > 0.004) S.holdings[h.player_id] = { sh: +h.sh, cost: +h.cost }; });
+        S.txns = rows(r[2]).map(function (t) { var p = byId(t.player_id); return { wk: t.week, t: t.kind, id: t.player_id, name: p ? p.name : t.player_id, sh: +t.sh, px: +t.px, amt: +t.amt }; });
+        var hist = rows(r[3]), byW = {}; hist.forEach(function (h) { byW[h.week] = +h.worth; });
+        var arr = [], last = START_CASH, first = hist.length ? +hist[0].worth : START_CASH;
+        for (var w = 0; w <= Math.max(S.week - 1, 0); w++) { if (byW[w] != null) last = byW[w]; else if (!arr.length) last = first; arr.push(last); }
+        S.nwHist = arr; S.nwMark = arr[arr.length - 1]; S.nwMarkWk = S.week;
+        S.watch = {}; rows(r[4]).forEach(function (w2) { S.watch[w2.player_id] = 1; });
+        var pr = uiPrefs(); S.guideDone = !!pr.guide || S.txns.some(function (t) { return t.t === "buy"; });
+        S.recap = buildRecap(pr.recap || 0);
+        return true;
+      });
     });
   }
   function buildRecap(seenWk) {
@@ -1376,26 +1387,41 @@ button:active:not(:disabled) { transform: scale(.98); }
     var g = gateEl(), h = '<div class="card" role="dialog" aria-modal="true" aria-labelledby="gth">';
     var fld = 'style="width:100%;margin-top:4px;padding:11px;border:1px solid var(--line);background:var(--bg);color:var(--fg);border-radius:10px;font:inherit"';
     var msg = gateMsg ? '<div class="pool" id="gt-msg" role="alert" style="margin:8px 0;color:var(--warn)">' + esc(gateMsg) + '</div>' : '<div class="pool" id="gt-msg" role="alert"></div>';
-    var codeF = '<label class="pmeta" style="display:block;margin-top:10px">Invite code<br><input id="gt-code" maxlength="40" autocomplete="off" autocapitalize="characters" ' + fld + '></label>';
+    var codeF = '<label class="pmeta" style="display:block;margin-top:10px">' + (authMode === "signup" ? 'Invite code (leave blank to start your own league)' : 'Invite code') + '<br><input id="gt-code" maxlength="40" autocomplete="off" autocapitalize="characters" ' + fld + '></label>';
     var rules = '<label class="pmeta" style="display:flex;gap:8px;align-items:flex-start;margin:10px 0"><input type="checkbox" id="gt-rules"> <span>I agree to the Rules and the Terms and privacy on the Rules tab. Sharps Exchange is play money only.</span></label>';
     if (authMode === "loading") h += '<h2 id="gth">Sharps Exchange</h2><p class="pool">Loading...</p>';
     else if (authMode === "fatal") h += '<h2 id="gth">Cannot connect</h2><p class="pool">' + esc(gateMsg) + '</p><button class="btn buy" data-gate="reload">Try again</button>';
-    else if (authMode === "join") h += '<h2 id="gth">Pick your name</h2><p class="pool">This is the name other players see. You start with $' + fmt0(START_CASH) + ' in play money.</p><label class="pmeta" style="display:block;margin-top:10px">Display name<br><input id="gt-name" maxlength="24" autocomplete="nickname" ' + fld + '></label>' + codeF + rules + msg + '<button class="btn buy" data-gate="join">Join the league</button><p class="pool" style="margin-top:12px"><button class="link" data-gate="signout">Sign out</button></p>';
+    else if (authMode === "join") h += '<h2 id="gth">' + (gateExtra ? 'Join a league' : 'Pick your name') + '</h2><p class="pool">This is the name other players in this league see. You start with $' + fmt0(START_CASH) + ' in play money, separate from any other league.</p><label class="pmeta" style="display:block;margin-top:10px">Display name<br><input id="gt-name" maxlength="24" autocomplete="nickname" ' + fld + '></label>' + codeF + rules + msg + '<button class="btn buy" data-gate="join">Join the league</button><p class="pool" style="margin-top:12px">' + (gateExtra ? '<button class="link" data-gate="join-cancel">Cancel</button>' : '<button class="link" data-gate="to-create">Start your own league</button> &middot; <button class="link" data-gate="signout">Sign out</button>') + '</p>';
+    else if (authMode === "create") h += '<h2 id="gth">Start a league</h2><p class="pool">You get an invite code to share. Everyone starts with $' + fmt0(START_CASH) + ' and plays on the same prices. You need a creator code from the game admin.</p><label class="pmeta" style="display:block;margin-top:10px">League name<br><input id="gt-lname" maxlength="40" autocomplete="off" ' + fld + '></label><label class="pmeta" style="display:block;margin-top:10px">Creator code<br><input id="gt-ccode" maxlength="24" autocomplete="off" autocapitalize="characters" ' + fld + '></label><label class="pmeta" style="display:block;margin-top:10px">Your display name in this league<br><input id="gt-name" maxlength="24" autocomplete="nickname" ' + fld + '></label>' + rules + msg + '<button class="btn buy" data-gate="create">Create the league</button><p class="pool" style="margin-top:12px"><button class="link" data-gate="create-back">Back</button></p>';
     else if (authMode === "account") {
       var ok = gateMsg && /^OK:/.test(gateMsg), mtxt = gateMsg ? esc(gateMsg.replace(/^OK:/, "")) : "";
       var amsg = '<div class="pool" id="gt-msg" role="status" style="margin:8px 0;color:' + (ok ? "var(--up)" : "var(--warn)") + '">' + mtxt + '</div>';
+      var invLink = location.origin + location.pathname + "?join=" + encodeURIComponent(S.lgCode || "");
       h += '<h2 id="gth">Your account</h2><p class="pool">Signed in as ' + esc((S.profile && S.profile.name) || "") + '.</p>' +
+        '<div class="k" style="font-weight:700;margin-top:12px">Your leagues</div><div class="list" style="margin-top:6px">' + (S.leagues || []).map(function (l) {
+          return '<div class="item"><div class="oline pad"><span><b>' + esc(l.name) + '</b><br><span class="pool">You are ' + esc(l.display_name) + ' &middot; ' + l.members + ' ' + (l.members === 1 ? 'player' : 'players') + '</span></span>' + (l.league_id === S.lg ? '<span class="pool">Current</span>' : '<button class="mini" data-gate="lg-switch:' + l.league_id + '">Open</button>') + '</div></div>';
+        }).join("") + '</div>' +
+        '<p class="pool" style="margin-top:10px">Invite friends to <b>' + esc(S.lgName || "") + '</b>: code <b>' + esc(S.lgCode || "") + '</b>. Anyone who opens this link can sign up and join.</p>' +
+        '<input id="gt-link" readonly value="' + esc(invLink) + '" ' + fld + '><button class="btn buy" data-gate="lg-copy" style="margin-top:8px">Copy invite link</button>' +
+        '<div class="mtools" style="margin-top:10px"><button class="btn buy" data-gate="acct-join">Join another league</button><button class="btn buy" data-gate="acct-create">Start a league</button></div>' +
+        (canMod() ? '<div style="border-top:1px solid var(--line);margin-top:14px;padding-top:12px"><div class="k" style="font-weight:700">League owner tools</div>' +
+          '<label class="pmeta" style="display:block;margin-top:6px">League name<br><input id="gt-lrename" maxlength="40" value="' + esc(S.lgName || "") + '" ' + fld + '></label><button class="btn buy" data-gate="lg-rename" style="margin-top:8px">Rename league</button>' +
+          '<p class="pool" style="margin-top:12px">A new invite code stops the old one working. People already in the league stay.</p><button class="btn sell" data-gate="lg-rotate">New invite code</button>' +
+          '<p class="pool" style="margin-top:12px">Remove a player takes them out of this league, with their cash, shares and chat messages.</p>' +
+          '<label class="pmeta" style="display:block;margin-top:6px">Player name<br><input id="gt-xname" maxlength="24" autocomplete="off" ' + fld + '></label>' +
+          '<button class="btn sell" data-gate="adm-remove" style="margin-top:10px">' + (removeArmed ? "Tap again to remove them" : "Remove player") + '</button></div>' : '') +
+        '<div class="k" style="font-weight:700;margin-top:16px">Password</div>' +
         '<label class="pmeta" style="display:block;margin-top:10px">New password (6 or more characters)<br><input id="gt-newpw" type="password" autocomplete="new-password" ' + fld + '></label>' +
         '<button class="btn buy" data-gate="acct-pw" style="margin-top:10px">Change my password</button>';
       if (S.admin) {
         h += '<div style="border-top:1px solid var(--line);margin-top:18px;padding-top:12px"><div class="k" style="font-weight:700">Admin</div>' +
-          '<p class="pool">Reset a player\'s password. Tell them the new one, and they can change it themselves under Account.</p>' +
+          '<p class="pool">Reset a player\'s password (in the current league). Tell them the new one, and they can change it themselves under Account.</p>' +
           '<label class="pmeta" style="display:block;margin-top:6px">Player name<br><input id="gt-rname" maxlength="24" autocomplete="off" ' + fld + '></label>' +
           '<label class="pmeta" style="display:block;margin-top:10px">Temporary password<br><input id="gt-rpw" autocomplete="off" ' + fld + '></label>' +
           '<button class="btn buy" data-gate="adm-reset" style="margin-top:10px">Reset their password</button>' +
-          '<p class="pool" style="margin-top:16px">Remove a player deletes their login, cash, shares and chat messages for good. Use it for someone who should not be here.</p>' +
-          '<label class="pmeta" style="display:block;margin-top:6px">Player name<br><input id="gt-xname" maxlength="24" autocomplete="off" ' + fld + '></label>' +
-          '<button class="btn sell" data-gate="adm-remove" style="margin-top:10px">' + (removeArmed ? "Tap again to remove them" : "Remove player") + '</button>' +
+          '<p class="pool" style="margin-top:16px">Creator code: anyone who has it can start a league. Change it to stop people making new ones.</p>' +
+          '<label class="pmeta" style="display:block;margin-top:6px">Creator code<br><input id="gt-cc" maxlength="24" autocomplete="off" value="' + esc(S.creatorCode || "") + '" ' + fld + '></label>' +
+          '<button class="btn buy" data-gate="adm-cc" style="margin-top:10px">Save creator code</button>' +
           '<p class="pool" style="margin-top:16px">Undo last week puts prices, cash, shares and the week counter back to just before the last week was played. Trades made since then are undone too.</p>' +
           '<button class="btn sell" data-gate="adm-undo" style="margin-top:6px">' + (undoArmed ? "Tap again to undo the last week" : "Undo last week") + '</button></div>';
       }
@@ -1405,6 +1431,7 @@ button:active:not(:disabled) { transform: scale(.98); }
     else if (authMode === "signup") h += '<h2 id="gth">Create your account</h2><label class="pmeta" style="display:block;margin-top:6px">Display name<br><input id="gt-name" maxlength="24" autocomplete="nickname" ' + fld + '></label><label class="pmeta" style="display:block;margin-top:10px">Email<br><input id="gt-email" type="email" autocomplete="email" ' + fld + '></label><label class="pmeta" style="display:block;margin-top:10px">Password (6 or more characters)<br><input id="gt-pass" type="password" autocomplete="new-password" ' + fld + '></label>' + codeF + rules + msg + '<button class="btn buy" data-gate="signup">Create account</button><p class="pool" style="margin-top:12px">Already have one? <button class="link" data-gate="switch">Sign in</button></p>';
     else h += '<h2 id="gth">Sign in</h2><label class="pmeta" style="display:block;margin-top:6px">Email<br><input id="gt-email" type="email" autocomplete="email" ' + fld + '></label><label class="pmeta" style="display:block;margin-top:10px">Password<br><input id="gt-pass" type="password" autocomplete="current-password" ' + fld + '></label>' + msg + '<button class="btn buy" data-gate="signin" style="margin-top:10px">Sign in</button><p class="pool" style="margin-top:12px">New here? <button class="link" data-gate="switch">Create an account</button> &middot; <button class="link" data-gate="forgot">Forgot password?</button></p>';
     g.innerHTML = h + '</div>'; g.hidden = false;
+    if (invite && (authMode === "signup" || authMode === "join")) { var ic = document.getElementById("gt-code"); if (ic && !ic.value) ic.value = invite; }
   }
   function hideGate() { gateEl().hidden = true; }
   function gv(id) { var e = document.getElementById(id); return e ? e.value.trim() : ""; }
@@ -1420,7 +1447,9 @@ button:active:not(:disabled) { transform: scale(.98); }
   function afterAuth() {
     return loadWorld().then(loadMine).then(function (hasProfile) {
       if (!hasProfile) {
+        gateExtra = false;
         var pend = "", pendc = ""; try { pend = localStorage.getItem("sx-pending-name") || ""; pendc = localStorage.getItem("sx-pending-code") || ""; } catch (e) {}
+        pendc = pendc || invite;
         authMode = "join"; gateMsg = ""; showGate();
         if (pend) { var n = document.getElementById("gt-name"); if (n) n.value = pend; }
         if (pendc) { var c = document.getElementById("gt-code"); if (c) c.value = pendc; }
@@ -1428,6 +1457,10 @@ button:active:not(:disabled) { transform: scale(.98); }
       }
       S.admin = false;
       sb.rpc("is_admin").then(function (r) { S.admin = !!(r && r.data === true); }, function () {});
+      if (invite && !S.leagues.some(function (l) { return String(l.code).toUpperCase() === invite.toUpperCase(); })) {
+        gateExtra = true; authMode = "join"; gateMsg = ""; showGate(); return;
+      }
+      if (invite) stripInvite();
       hideGate(); render(); startTimers();
     }).catch(function (e) { authMode = "fatal"; gateMsg = cleanErr(e && e.message); showGate(); });
   }
@@ -1438,13 +1471,62 @@ button:active:not(:disabled) { transform: scale(.98); }
         if (authMode === "signup") { authMode = "join"; gateMsg = em; gateBusy = false; showGate(); var n0 = document.getElementById("gt-name"); if (n0) n0.value = name; var c0 = document.getElementById("gt-code"); if (c0) c0.value = code; return; }
         gateFail(em); return;
       }
-      try { localStorage.removeItem("sx-pending-name"); localStorage.removeItem("sx-pending-code"); } catch (e) {}
+      try { localStorage.removeItem("sx-pending-name"); localStorage.removeItem("sx-pending-code"); if (r.data && r.data.league_id) localStorage.setItem(lgKey, String(r.data.league_id)); } catch (e) {}
+      stripInvite(); gateExtra = false;
       return afterAuth();
     });
   }
   function gateAction(a) {
     if (gateBusy) return;
     if (a === "reload") { location.reload(); return; }
+    if (a.indexOf("lg-switch:") === 0) {
+      var nid = +a.slice(10); try { localStorage.setItem(lgKey, String(nid)); } catch (e) {}
+      gateBusy = true; board = { w: null, profiles: [], rows: [], all: [], trades: [] }; chat.msgs = []; chat.ready = false;
+      loadMine().then(function () { gateBusy = false; gateMsg = ""; hideGate(); render(); }, function (e) { gateBusy = false; gateMsg = cleanErr(e && e.message); showGate(); });
+      return;
+    }
+    if (a === "acct-join") { gateExtra = true; authMode = "join"; gateMsg = ""; showGate(); return; }
+    if (a === "acct-create") { gateExtra = true; authMode = "create"; gateMsg = ""; showGate(); return; }
+    if (a === "to-create") { authMode = "create"; gateMsg = ""; showGate(); var pn = ""; try { pn = localStorage.getItem("sx-pending-name") || ""; } catch (e) {} var ne = document.getElementById("gt-name"); if (ne && pn) ne.value = pn; return; }
+    if (a === "create-back") { if (gateExtra) { authMode = "account"; } else authMode = "join"; gateMsg = ""; showGate(); return; }
+    if (a === "join-cancel") { stripInvite(); gateExtra = false; gateMsg = ""; if (S.profile) hideGate(); else { authMode = "join"; showGate(); } return; }
+    if (a === "lg-copy") {
+      var le = document.getElementById("gt-link"); if (!le) return; le.select();
+      var done = function (ok) { gateMsg = ok ? "OK:Link copied. Paste it into a text or message." : "Press and hold the link above to copy it."; showGate(); };
+      try { navigator.clipboard.writeText(le.value).then(function () { done(true); }, function () { done(false); }); } catch (e) { done(false); }
+      return;
+    }
+    if (a === "lg-rename") {
+      var nn = gv("gt-lrename"); if (nn.length < 2) { gateMsg = "League names are 2 to 40 characters."; showGate(); return; }
+      gateBusy = true;
+      sb.rpc("rename_league", { p_league: S.lg, p_name: nn }).then(function (r) { if (r.error) { gateBusy = false; gateMsg = cleanErr(r.error.message); showGate(); return; } return loadMine().then(function () { gateBusy = false; gateMsg = "OK:League renamed."; showGate(); }); }, function () { gateBusy = false; gateMsg = "Could not reach the server. Try again."; showGate(); });
+      return;
+    }
+    if (a === "lg-rotate") {
+      gateBusy = true;
+      sb.rpc("rotate_league_code", { p_league: S.lg }).then(function (r) { if (r.error) { gateBusy = false; gateMsg = cleanErr(r.error.message); showGate(); return; } return loadMine().then(function () { gateBusy = false; gateMsg = "OK:New invite code: " + r.data; showGate(); }); }, function () { gateBusy = false; gateMsg = "Could not reach the server. Try again."; showGate(); });
+      return;
+    }
+    if (a === "adm-cc") {
+      var cc = gv("gt-cc"); gateBusy = true;
+      sb.rpc("admin_set_creator_code", { p_code: cc }).then(function (r) { gateBusy = false; if (!r.error) S.creatorCode = cc; gateMsg = r.error ? cleanErr(r.error.message) : "OK:Creator code saved."; showGate(); }, function () { gateBusy = false; gateMsg = "Could not reach the server. Try again."; showGate(); });
+      return;
+    }
+    if (a === "create") {
+      var ln = gv("gt-lname"), cc2 = gv("gt-ccode"), dn = gv("gt-name").replace(/[<>&"]/g, "");
+      if (ln.length < 2 || ln.length > 40) { gateFail("League names are 2 to 40 characters."); return; }
+      if (!cc2) { gateFail("Enter the creator code."); return; }
+      if (!validName(dn)) { gateFail("Pick a display name between 2 and 24 characters."); return; }
+      if (!gchk()) { gateFail("Please accept the rules to continue."); return; }
+      setGateBusy(true, "Creating...");
+      sb.rpc("create_league", { p_name: ln, p_creator_code: cc2, p_display_name: dn }).then(function (r) {
+        if (r.error) { gateFail(cleanErr(r.error.message)); return; }
+        try { localStorage.setItem(lgKey, String(r.data.league_id)); localStorage.removeItem("sx-pending-name"); localStorage.removeItem("sx-pending-code"); } catch (e) {}
+        gateBusy = false; stripInvite(); gateExtra = false;
+        return afterAuth().then(function () { authMode = "account"; gateMsg = "OK:League created. Your invite code is " + r.data.code + ". Share the link below."; showGate(); });
+      }, function () { gateFail("Could not reach the server. Try again."); });
+      return;
+    }
     if (a === "acct-close") { undoArmed = false; removeArmed = false; gateMsg = ""; hideGate(); return; }
     if (a === "acct-pw") {
       var np = document.getElementById("gt-newpw").value;
@@ -1457,7 +1539,7 @@ button:active:not(:disabled) { transform: scale(.98); }
       var rn = gv("gt-rname"), rp = document.getElementById("gt-rpw").value;
       if (!rn || rp.length < 6) { gateMsg = "Enter the player's name and a password of at least 6 characters."; showGate(); return; }
       gateBusy = true;
-      sb.rpc("admin_reset_password", { p_name: rn, p_new: rp }).then(function (r) { gateBusy = false; gateMsg = r.error ? cleanErr(r.error.message) : "OK:Password reset for " + rn + ". Tell them the new one."; showGate(); }, function () { gateBusy = false; gateMsg = "Could not reach the server. Try again."; showGate(); });
+      sb.rpc("admin_reset_password", { p_name: rn, p_new: rp, p_league: S.lg }).then(function (r) { gateBusy = false; gateMsg = r.error ? cleanErr(r.error.message) : "OK:Password reset for " + rn + ". Tell them the new one."; showGate(); }, function () { gateBusy = false; gateMsg = "Could not reach the server. Try again."; showGate(); });
       return;
     }
     if (a === "adm-remove") {
@@ -1465,7 +1547,7 @@ button:active:not(:disabled) { transform: scale(.98); }
       if (!xn) { gateMsg = "Enter the player's name."; removeArmed = false; showGate(); return; }
       if (!removeArmed) { removeArmed = true; gateMsg = "Tap again to remove " + xn + " for good."; showGate(); var xe = document.getElementById("gt-xname"); if (xe) xe.value = xn; return; }
       removeArmed = false; gateBusy = true;
-      sb.rpc("admin_remove_player", { p_name: xn }).then(function (r) { gateBusy = false; gateMsg = r.error ? cleanErr(r.error.message) : "OK:Removed " + xn + "."; showGate(); }, function () { gateBusy = false; gateMsg = "Could not reach the server. Try again."; showGate(); });
+      sb.rpc("admin_remove_player", { p_name: xn, p_league: S.lg }).then(function (r) { gateBusy = false; gateMsg = r.error ? cleanErr(r.error.message) : "OK:Removed " + xn + "."; showGate(); }, function () { gateBusy = false; gateMsg = "Could not reach the server. Try again."; showGate(); });
       return;
     }
     if (a === "adm-undo") {
@@ -1520,13 +1602,12 @@ button:active:not(:disabled) { transform: scale(.98); }
       if (!validName(nm)) { gateFail("Pick a display name between 2 and 24 characters."); return; }
       if (!em2 || pw2.length < 6) { gateFail("Enter an email and a password of at least 6 characters."); return; }
       var cd = gv("gt-code");
-      if (!cd) { gateFail("Enter the invite code you were given."); return; }
       if (!gchk()) { gateFail("Please accept the rules to continue."); return; }
-      try { localStorage.setItem("sx-pending-name", nm); localStorage.setItem("sx-pending-code", cd); } catch (e) {}
+      try { localStorage.setItem("sx-pending-name", nm); if (cd) localStorage.setItem("sx-pending-code", cd); else localStorage.removeItem("sx-pending-code"); } catch (e) {}
       setGateBusy(true, "Creating...");
       sb.auth.signUp({ email: em2, password: pw2 }).then(function (r) {
         if (r.error) { gateFail(r.error.message); return; }
-        if (r.data && r.data.session) { user = r.data.user; gateBusy = false; doJoin(nm, cd); return; }
+        if (r.data && r.data.session) { user = r.data.user; gateBusy = false; if (cd) doJoin(nm, cd); else afterAuth(); return; }
         authMode = "signin"; gateMsg = "Check your email to confirm your account, then sign in here."; gateBusy = false; showGate();
       });
       return;
@@ -1548,7 +1629,7 @@ button:active:not(:disabled) { transform: scale(.98); }
     if (qty <= 0) { ticketMsg = "Enter an amount first."; return Promise.resolve(); }
     var li = lockInfo(p); if (li && li.locked) { ticketMsg = "Trading is closed for this player until prices update after this week's games."; return Promise.resolve(); }
     busy = true;
-    return sb.rpc("trade", { p_player: p.id, p_side: act === "buynow" ? "buy" : "sell", p_qty: qty }).then(function (r) {
+    return sb.rpc("trade", { p_player: p.id, p_side: act === "buynow" ? "buy" : "sell", p_qty: qty, p_league: S.lg }).then(function (r) {
       if (r.error) { ticketMsg = cleanErr(r.error.message); busy = false; return; }
       var d = r.data || {}, verb = d.side === "buy" ? "Bought" : "Sold";
       ticketMsg = verb + " " + fmtSh(d.shares) + " " + plural(d.shares) + " for $" + fmt(d.amount) + ".";
@@ -1567,12 +1648,12 @@ button:active:not(:disabled) { transform: scale(.98); }
   /* ---------- league ---------- */
   function loadBoard() {
     var w = lgWeek == null ? Math.max(S.week - 1, 0) : lgWeek;
-    return Promise.all([sb.from("profiles").select("user_id,name"), sb.from("net_worth_hist").select("user_id,week,worth").in("week", [Math.max(w - 1, 0), w]), sb.rpc("recent_trades", { p_limit: 15 }).then(function (x) { return x; }, function () { return { data: [] }; })]).then(function (r) {
+    return Promise.all([sb.from("members").select("user_id,name").eq("league_id", S.lg).limit(1000), sb.from("net_worth_hist").select("user_id,week,worth").eq("league_id", S.lg).in("week", [Math.max(w - 1, 0), w]).limit(1000), sb.rpc("recent_trades", { p_limit: 15, p_league: S.lg }).then(function (x) { return x; }, function () { return { data: [] }; })]).then(function (r) {
       board.profiles = r[0].data || []; board.rows = r[1].data || []; board.trades = (r[2] && r[2].data) || []; board.all = []; board.w = w; if (tab === "board") render();
       /* the race chart needs every week for only the leaders and you: asking for just those keeps the answer small however many people play */
       var at = {}; board.rows.forEach(function (x) { if (x.week === w) at[x.user_id] = +x.worth; });
       var ids = Object.keys(at).sort(function (a, b) { return at[b] - at[a]; }).slice(0, 5); if (user && ids.indexOf(user.id) < 0 && at[user.id] != null) ids.push(user.id);
-      if (ids.length > 1 && w >= 1) sb.from("net_worth_hist").select("user_id,week,worth").in("user_id", ids).limit(500).then(function (x) { board.all = (x && x.data) || []; if (tab === "board" && board.w === w) render(); }, function () {});
+      if (ids.length > 1 && w >= 1) sb.from("net_worth_hist").select("user_id,week,worth").eq("league_id", S.lg).in("user_id", ids).limit(500).then(function (x) { board.all = (x && x.data) || []; if (tab === "board" && board.w === w) render(); }, function () {});
     }).catch(function () { board.w = w; board.profiles = []; board.rows = []; if (tab === "board") render(); });
   }
   function podiumHTML(season, w) {
@@ -1620,7 +1701,7 @@ button:active:not(:disabled) { transform: scale(.98); }
     }
     var pctF = function (v) { return (v >= 0 ? "+" : "") + (v * 100).toFixed(1) + "%"; };
     var opts = ""; for (var k = 0; k <= maxW; k++) opts += '<option value="' + k + '"' + (k === w ? ' selected' : '') + '>' + (k === 0 ? 'Start of season' : 'After ' + weekLabel(k)) + '</option>';
-    var head = '<div class="item" style="padding:12px"><div class="sect" style="margin-top:0">Sharps Exchange league</div>' +
+    var head = '<div class="item" style="padding:12px"><div class="sect" style="margin-top:0">' + esc(S.lgName || "Sharps Exchange") + ' league</div>' +
       '<div class="summary" style="margin-top:6px"><span>Players <b>' + board.profiles.length + '</b></span><span>Entry <b>Free</b></span></div>' +
       '<div class="pool" style="margin-top:8px">Everyone shares the same prices and the same week. Standings update after each week is played.</div>' +
       '<div class="mtools" style="margin-top:10px"><label class="pool" for="lgweek" style="align-self:center">Standings as of</label><select id="lgweek" aria-label="Standings as of week" style="max-width:none;flex:1">' + opts + '</select></div></div>';
@@ -1634,7 +1715,7 @@ button:active:not(:disabled) { transform: scale(.98); }
   function chatTime(t) { var d = new Date(t); return isFinite(d) ? d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : ""; }
   function chatListHTML() {
     if (!chat.msgs.length) return '<div class="cmsg"><span class="pool">' + (chat.ready ? 'No messages yet. Say hello.' : 'Loading chat...') + '</span></div>';
-    return chat.msgs.map(function (m) { return '<div class="cmsg"><span class="who">' + esc(m.name || "Player") + '</span><span class="when">' + esc(chatTime(m.at)) + '</span>' + (S.admin && m.id ? ' <button class="link" data-chat-del="' + esc(String(m.id)) + '" aria-label="Delete message">Delete</button>' : '') + '<br>' + esc(m.text || "") + '</div>'; }).join("");
+    return chat.msgs.map(function (m) { return '<div class="cmsg"><span class="who">' + esc(m.name || "Player") + '</span><span class="when">' + esc(chatTime(m.at)) + '</span>' + (canMod() && m.id ? ' <button class="link" data-chat-del="' + esc(String(m.id)) + '" aria-label="Delete message">Delete</button>' : '') + '<br>' + esc(m.text || "") + '</div>'; }).join("");
   }
   function chatUpdate() {
     if (tab !== "chat") return;
@@ -1644,7 +1725,7 @@ button:active:not(:disabled) { transform: scale(.98); }
   }
   function loadChat() {
     if (!sb || !user) return Promise.resolve();
-    return sb.from("chat").select("*").order("id", { ascending: false }).limit(80).then(function (r) {
+    return sb.from("chat").select("*").eq("league_id", S.lg).order("id", { ascending: false }).limit(80).then(function (r) {
       chat.msgs = (r.data || []).reverse().map(function (m) { return { id: m.id, name: m.name, text: m.body, at: m.created_at }; }); chat.ready = true; chatUpdate();
     }).catch(function () {});
   }
@@ -1658,7 +1739,7 @@ button:active:not(:disabled) { transform: scale(.98); }
     var text = inp.value.trim(); if (!text) return;
     if (Date.now() - chat.last < 1500) { chat.status = "Slow down a little."; var m0 = document.getElementById("chatmsg"); if (m0) m0.textContent = chat.status; return; }
     chat.last = Date.now(); inp.value = "";
-    sb.rpc("post_chat", { p_body: text.slice(0, 280) }).then(function (r) {
+    sb.rpc("post_chat", { p_body: text.slice(0, 280), p_league: S.lg }).then(function (r) {
       chat.status = r.error ? cleanErr(r.error.message) : ""; var m = document.getElementById("chatmsg"); if (m) m.textContent = chat.status;
       if (!r.error) loadChat();
     });
@@ -1674,13 +1755,13 @@ button:active:not(:disabled) { transform: scale(.98); }
   document.getElementById("gate").addEventListener("click", function (e) { var t = e.target.closest("[data-gate]"); if (t) { e.preventDefault(); gateAction(t.getAttribute("data-gate")); } });
   document.getElementById("gate").addEventListener("keydown", function (e) { if (e.key !== "Enter" || e.target.tagName !== "INPUT" || e.target.type === "checkbox") return; var p = document.querySelector("#gate .btn[data-gate]"); if (p) { e.preventDefault(); gateAction(p.getAttribute("data-gate")); } });
   document.addEventListener("click", function (e) {
-    var cd = e.target && e.target.closest && e.target.closest("[data-chat-del]"); if (!cd || !S.admin) return;
+    var cd = e.target && e.target.closest && e.target.closest("[data-chat-del]"); if (!cd || !canMod()) return;
     sb.rpc("admin_delete_chat", { p_id: Number(cd.getAttribute("data-chat-del")) }).then(function (r) {
       if (r.error) { var m = document.getElementById("chatmsg"); if (m) m.textContent = cleanErr(r.error.message); return; }
       loadChat();
     });
   });
-  document.addEventListener("click", function (e) { if (e.target && e.target.id === "acct") { authMode = "account"; gateMsg = ""; undoArmed = false; removeArmed = false; showGate(); } });
+  document.addEventListener("click", function (e) { if (e.target && e.target.id === "acct") { authMode = "account"; gateMsg = ""; undoArmed = false; removeArmed = false; gateExtra = false; showGate(); if (S.admin) sb.rpc("admin_creator_code").then(function (r) { if (r && !r.error && authMode === "account") { S.creatorCode = r.data || ""; var ce = document.getElementById("gt-cc"); if (ce && !ce.value) ce.value = S.creatorCode; } }, function () {}); } });
   function boot() {
     authMode = "loading"; showGate();
     if (!window.supabase || !window.supabase.createClient) { authMode = "fatal"; gateMsg = "The sign-in service did not load. Check your connection and try again."; showGate(); return; }
