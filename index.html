@@ -1141,7 +1141,7 @@ button:active:not(:disabled) { transform: scale(.98); }
     var c0 = change(p);
     var rng = '<div class="mgrp rng" role="group" aria-label="Chart range"><button class="mchip" data-range="0" aria-pressed="' + (rangeN === 0) + '">Season</button><button class="mchip" data-range="4" aria-pressed="' + (rangeN === 4) + '">Last 4</button></div>';
     return '<div class="ticket">' +
-      '<div class="dhead">' + avatar(p, true) + '<div class="dn"><div class="pname">' + p.name + '</div><div class="pmeta"><span class="pos pos-' + p.pos + '">' + p.pos + '</span>' + teamTag(p.team) + injTag(p) + lockTag(p) + starBtn(p) + '</div></div><div class="px"><div class="p">$' + fmt(p.px) + '</div><div class="c ' + dir(c0) + '">' + pct(c0) + '</div></div></div>' +
+      '<div class="dhead">' + avatar(p, true) + '<div class="dn"><div class="pname">' + p.name + '</div><div class="pmeta">' + (p.pos === "DEF" ? "" : '<span class="pos pos-' + p.pos + '">' + p.pos + '</span>' + teamTag(p.team)) + injTag(p) + lockTag(p) + starBtn(p) + '</div></div><div class="px"><div class="p">$' + fmt(p.px) + '</div><div class="c ' + dir(c0) + '">' + pct(c0) + '</div></div></div>' +
       '<div>' + '<div class="chartbar"><span class="k">Price</span>' + rng + '</div>' + lineChart({ series: [{ v: hh, color: col(hh[hh.length - 1] - hh[0]), name: 'Price' }], labels: hh.map(function (_, i) { var wk = S.week - hh.length + i; return wk < 1 ? 'Pre' : 'W' + wk; }), fmt: function (v) { return '$' + v.toFixed(2); }, h: 150, aria: p.name + ' price by week' }) + '</div>' +
       '<div class="facts">' +
         '<div class="fact"><div class="k">High</div><div class="v">$' + fmt(hi) + '</div></div>' +
@@ -1177,7 +1177,7 @@ button:active:not(:disabled) { transform: scale(.98); }
     var c = change(p), open = openId === p.id;
     var bb = p.bids.length ? p.bids[0].px : null, ba = p.asks.length ? p.asks[0].px : null;
     var h = '<div class="item"><div class="row" tabindex="0" role="button" aria-expanded="' + open + '" data-id="' + p.id + '">' +
-      '<div class="pl">' + avatar(p) + '<div><div class="pname">' + p.name + '</div><div class="pmeta"><span class="pos pos-' + p.pos + '">' + p.pos + '</span>' + teamTag(p.team) + (p.rookie ? '<span class="rk">ROOKIE</span>' : '') + injTag(p) + lockTag(p) + starBtn(p) + '</div></div></div>' +
+      '<div class="pl">' + avatar(p) + '<div><div class="pname">' + p.name + '</div><div class="pmeta">' + (p.pos === "DEF" ? "" : '<span class="pos pos-' + p.pos + '">' + p.pos + '</span>' + teamTag(p.team)) + (p.rookie ? '<span class="rk">ROOKIE</span>' : '') + injTag(p) + lockTag(p) + starBtn(p) + '</div></div></div>' +
       '<div class="spark">' + spark(p.hist, 64, 28, col(c)) + '</div>' +
       '<div class="px"><div class="p">' + fmt(price(p)) + '</div><div class="c ' + dir(c) + '">' + pct(c) + '</div></div></div>';
     if (open && !wide()) h += ticketHTML(p);
@@ -2007,7 +2007,7 @@ button:active:not(:disabled) { transform: scale(.98); }
   function inkFor(hex) { var n = parseInt(hex.slice(1), 16), r = n >> 16, g = (n >> 8) & 255, b = n & 255; return (0.299 * r + 0.587 * g + 0.114 * b) > 150 ? "#101820" : "#ffffff"; }
   function teamTag(code) {
     var c = TEAM_COLOR[code] || "#4b5563", c2 = TEAM_COLOR2[code] || "#ffffff";
-    return '<span class="tm">' + logoImg(code, "tlogo-s") + '<span class="tlg" style="--tc:' + c + ';--t2:' + c2 + ';--tx:' + inkFor(c) + '"><span class="tlgt">' + code + '</span></span></span>';
+    return '<span class="tm">' + logoImg(code, "tlogo-s") + '</span>';
   }
   function avatar(p, big) {
     var c = TEAM_COLOR[p.team] || "#4b5563", h = HEAD[p.id];
