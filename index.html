@@ -531,6 +531,7 @@ button:active:not(:disabled) { transform: scale(.98); }
     <button class="tab" role="tab" data-tab="ipo" aria-selected="false">Rookies</button>
     <button class="tab" role="tab" data-tab="portfolio" aria-selected="false">Holdings</button>
     <button class="tab" role="tab" data-tab="board" aria-selected="false">League</button>
+    <button class="tab" role="tab" data-tab="scores" aria-selected="false">Live</button>
     <button class="tab" role="tab" data-tab="chat" aria-selected="false">Chat</button>
     <button class="tab" role="tab" data-tab="rules" aria-selected="false">Rules</button>
     <button class="tab" role="tab" data-tab="feed" aria-selected="false">Wire</button>
@@ -1745,10 +1746,89 @@ button:active:not(:disabled) { transform: scale(.98); }
     });
   }
 
+  /* ---------- live scores (public ESPN feed, read straight from the phone) ---------- */
+  var ESPN = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/";
+  var scores = { games: null, at: 0, err: "", busy: false, box: {}, timer: null };
+  function eteam(a) { a = String(a || "").toUpperCase(); return { JAX: "JAC", WSH: "WAS", LA: "LAR" }[a] || a; }
+  function nkey(n) { return String(n || "").toLowerCase().replace(/\b(jr|sr|ii|iii|iv)\b\.?/g, "").replace(/[^a-z]/g, ""); }
+  function jget(url) {
+    var ctl = window.AbortController ? new AbortController() : null, to = ctl ? setTimeout(function () { ctl.abort(); }, 12000) : null;
+    return fetch(url, { cache: "no-store", signal: ctl ? ctl.signal : undefined }).then(function (r) { if (to) clearTimeout(to); if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); });
+  }
+  function parseGame(e) {
+    var c = (e.competitions || [])[0] || {}, st = ((e.status || c.status || {}).type) || {}, cs = c.competitors || [];
+    var home = cs.filter(function (x) { return x.homeAway === "home"; })[0] || cs[0] || {}, away = cs.filter(function (x) { return x.homeAway === "away"; })[0] || cs[1] || {};
+    function side(x) { return { t: eteam(x.team && x.team.abbreviation), s: +x.score || 0 }; }
+    return { id: e.id, state: st.state || "pre", detail: st.shortDetail || st.detail || "", date: e.date, home: side(home), away: side(away) };
+  }
+  /* box score -> { "name|team": { passing: {label: value}, rushing: {...}, receiving: {...} }, defSacks: {team: n} } */
+  function parseBox(sm) {
+    var out = { p: {}, sacks: {} };
+    ((sm && sm.boxscore && sm.boxscore.players) || []).forEach(function (tm) {
+      var team = eteam(tm.team && tm.team.abbreviation);
+      (tm.statistics || []).forEach(function (grp) {
+        var labels = grp.labels || [], cat = grp.name;
+        (grp.athletes || []).forEach(function (a) {
+          var nm = a.athlete && (a.athlete.displayName || a.athlete.fullName); if (!nm) return;
+          var o = {}; labels.forEach(function (l, i) { o[l] = (a.stats || [])[i]; });
+          if (cat === "defensive") { out.sacks[team] = (out.sacks[team] || 0) + (parseFloat(o.SACKS) || 0); return; }
+          var key = nkey(nm) + "|" + team; (out.p[key] = out.p[key] || {})[cat] = o;
+        });
+      });
+    });
+    return out;
+  }
+  function loadScores() {
+    if (scores.busy || !window.fetch) return; scores.busy = true;
+    jget(ESPN + "scoreboard").then(function (sc) {
+      scores.games = (sc.events || []).map(parseGame); scores.at = Date.now(); scores.err = "";
+      return Promise.all(scores.games.filter(function (g) { return g.state === "in"; }).map(function (g) {
+        return jget(ESPN + "summary?event=" + g.id).then(function (sm) { scores.box[g.id] = parseBox(sm); }, function () {});
+      }));
+    }).then(null, function () { scores.err = "Live scores are not available right now. Try again in a minute."; }).then(function () { scores.busy = false; if (tab === "scores") scoresUpdate(); });
+  }
+  function scoresUpdate() { var el = document.getElementById("scoresbody"); if (el) el.innerHTML = scoresBodyHTML(); else render(); }
+  function n0(v) { return parseFloat(v) || 0; }
+  function liveLine(p, g, b) {
+    var me = p.team === g.home.t ? g.home : g.away, opp = p.team === g.home.t ? g.away : g.home;
+    if (p.pos === "DEF") return opp.s + " pts allowed" + (b && b.sacks[p.team] ? ", " + b.sacks[p.team] + (b.sacks[p.team] === 1 ? " sack" : " sacks") : "");
+    var d = (b && b.p[nkey(p.name) + "|" + p.team]) || null; if (!d) return "";
+    var parts = [], pa = d.passing, ru = d.rushing, re = d.receiving;
+    if (pa) parts.push((pa["C/ATT"] || "0/0") + ", " + n0(pa.YDS) + " pass yds, " + n0(pa.TD) + " TD" + (n0(pa.INT) ? ", " + n0(pa.INT) + " INT" : ""));
+    if (ru && n0(ru.CAR)) parts.push(n0(ru.CAR) + " rush, " + n0(ru.YDS) + " yds" + (n0(ru.TD) ? ", " + n0(ru.TD) + " TD" : ""));
+    if (re && (n0(re.REC) || n0(re.TGTS))) parts.push(n0(re.REC) + " rec, " + n0(re.YDS) + " yds" + (n0(re.TD) ? ", " + n0(re.TD) + " TD" : ""));
+    return parts.join(" · ");
+  }
+  function gameCardHTML(g) {
+    var b = scores.box[g.id], mine = S.players.filter(function (p) { return p.team === g.home.t || p.team === g.away.t; }).sort(function (a, c) { return c.px - a.px; });
+    var rowsH = mine.map(function (p) {
+      var ln = liveLine(p, g, b), own = S.holdings[p.id];
+      return '<div class="item"><div class="oline pad"><span><b>' + esc(p.name) + '</b> <span class="pool">' + esc(p.pos) + ' &middot; ' + esc(p.team) + (own ? ' &middot; you own ' + fmtSh(own.sh) : '') + '</span><br><span class="pool">' + (ln ? esc(ln) : 'No stats yet') + '</span></span><span class="num">$' + p.px.toFixed(2) + '</span></div></div>';
+    }).join("");
+    return '<div class="item" style="padding:12px"><div class="oline"><span><b>' + esc(g.away.t) + ' ' + g.away.s + '</b> at <b>' + esc(g.home.t) + ' ' + g.home.s + '</b></span><span class="pool">' + esc(g.detail) + '</span></div></div><div class="list">' + (rowsH || '<div class="item"><div class="pool pad">None of your market players are in this game.</div></div>') + '</div>';
+  }
+  function scoresBodyHTML() {
+    if (!scores.games) return scores.err ? '<div class="empty"><strong>No live scores</strong>' + esc(scores.err) + '</div>' : '<div class="empty"><strong>Loading scores</strong>One moment.</div>';
+    var live = scores.games.filter(function (g) { return g.state === "in"; }), rest = scores.games.filter(function (g) { return g.state !== "in"; });
+    var h = scores.err ? '<p class="note">' + esc(scores.err) + '</p>' : '';
+    h += '<div class="sect">In progress</div>' + (live.length ? live.map(gameCardHTML).join("") : '<div class="empty"><strong>No games are being played right now</strong>When a game kicks off it shows up here with your players\' stats.</div>');
+    if (rest.length) h += '<div class="sect">Other games</div><div class="list">' + rest.map(function (g) {
+      var d = g.state === "post" ? g.detail : (g.date ? new Date(g.date).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" }) : g.detail);
+      return '<div class="item"><div class="oline pad"><span><b>' + esc(g.away.t) + (g.state === "pre" ? '' : ' ' + g.away.s) + '</b> at <b>' + esc(g.home.t) + (g.state === "pre" ? '' : ' ' + g.home.s) + '</b></span><span class="pool">' + esc(d) + '</span></div></div>';
+    }).join("") + '</div>';
+    return h;
+  }
+  function renderScores() {
+    if (!scores.games && !scores.busy && !scores.err) loadScores();
+    var up = scores.at ? 'Updated ' + chatTime(scores.at) + '. Refreshes every 30 seconds while this tab is open.' : '';
+    return '<div class="sect">Live scores</div><p class="note" style="margin-top:0">Scores and stats come from ESPN and can lag the TV by a minute. Players in games that have started are locked for trading until prices update after the week\'s games. ' + up + '</p><div id="scoresbody">' + scoresBodyHTML() + '</div>';
+  }
+
   /* ---------- timers and start ---------- */
   function startTimers() {
     if (worldTimer) return;
     worldTimer = setInterval(function () { if (document.hidden) return; refreshWorld(); }, 60000);
+    scores.timer = setInterval(function () { if (tab === "scores" && !document.hidden) loadScores(); }, 30000);
     chat.timer = setInterval(function () { if (tab === "chat" && !document.hidden) loadChat(); }, 6000);
     document.addEventListener("visibilitychange", function () { if (!document.hidden) refreshWorld(); });
   }
@@ -1812,7 +1892,7 @@ button:active:not(:disabled) { transform: scale(.98); }
   function render() {
     renderHeader(); renderOperator();
     var v = document.getElementById("view");
-    v.innerHTML = tab === "market" ? renderMarket() : tab === "ipo" ? renderIpo() : tab === "portfolio" ? renderPortfolio() : tab === "board" ? renderBoard() : tab === "chat" ? renderChat() : tab === "rules" ? renderRules() : renderFeed();
+    v.innerHTML = tab === "market" ? renderMarket() : tab === "ipo" ? renderIpo() : tab === "portfolio" ? renderPortfolio() : tab === "board" ? renderBoard() : tab === "chat" ? renderChat() : tab === "scores" ? renderScores() : tab === "rules" ? renderRules() : renderFeed();
     var tabs = document.querySelectorAll(".tab");
     for (var i = 0; i < tabs.length; i++) {
       var t = tabs[i].getAttribute("data-tab");
@@ -2163,7 +2243,7 @@ button:active:not(:disabled) { transform: scale(.98); }
     var seen = false; try { seen = !!localStorage.getItem("gridiron-how"); } catch (e) {}
     if (!seen) how.hidden = false;
   })();
-  document.getElementById("tabs").addEventListener("click", function (e) { var t = e.target.closest(".tab"); if (!t) return; tab = t.getAttribute("data-tab"); openId = null; qty = 1; pxIn = ""; ticketMsg = ""; if (tab === "board") board.w = null; if (tab === "chat") loadChat(); render(); });
+  document.getElementById("tabs").addEventListener("click", function (e) { var t = e.target.closest(".tab"); if (!t) return; tab = t.getAttribute("data-tab"); openId = null; qty = 1; pxIn = ""; ticketMsg = ""; if (tab === "board") board.w = null; if (tab === "chat") loadChat(); if (tab === "scores") loadScores(); render(); });
   document.getElementById("reset").addEventListener("click", function () { if (sb) sb.auth.signOut().then(function () { location.reload(); }); });
 
   var view = document.getElementById("view");
