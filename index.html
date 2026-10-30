@@ -292,6 +292,24 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 :root { --s1: #2563a8; --s2: #c2571a; --s3: #7a4fb5; --s4: #a87908; --s5: #0b7f86; --s6: #b0408a; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --s1: #6aa5ee; --s2: #f0955a; --s3: #b394e6; --s4: #e6c15a; --s5: #4fcfcf; --s6: #e87fc0; } }
 :root[data-theme="dark"] { --s1: #6aa5ee; --s2: #f0955a; --s3: #b394e6; --s4: #e6c15a; --s5: #4fcfcf; --s6: #e87fc0; }
+.gcard { border: 1px solid var(--line); border-radius: 12px; margin-top: 10px; overflow: hidden; }
+.gcard::before { content: ""; display: block; height: 5px; background: linear-gradient(90deg, var(--ga) 0 50%, var(--gh) 50% 100%); }
+.ghead { all: unset; box-sizing: border-box; display: flex; width: 100%; gap: 10px; align-items: center; justify-content: space-between; padding: 10px 12px; cursor: pointer; color: inherit; }
+.ghead:focus-visible { outline: 2px solid var(--fg); outline-offset: -2px; }
+.gteams { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.grow { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.gt { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.gt b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tlogo { position: relative; width: 30px; height: 30px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; flex: none; overflow: hidden; }
+.tlogo img { position: absolute; inset: 2px; width: 26px; height: 26px; object-fit: contain; }
+.tlogo i { font-style: normal; font-size: 9px; font-weight: 700; color: #fff; }
+.gs { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; opacity: .7; }
+.gs.win { opacity: 1; }
+.gmeta { font-size: 12px; color: var(--muted); display: flex; flex-direction: column; align-items: flex-end; gap: 8px; flex: none; text-align: right; }
+.livepill { color: var(--up); font-weight: 600; }
+.gbody { border-top: 1px solid var(--line); }
+.prow { display: flex; justify-content: space-between; gap: 10px; padding: 9px 12px; border-left: 4px solid var(--line); border-bottom: 1px solid var(--line); }
+.prow:last-child { border-bottom: 0; }
 .toast { position: fixed; left: 50%; bottom: max(20px, env(safe-area-inset-bottom, 0px)); transform: translate(-50%, 20px); background: var(--fg); color: var(--bg); padding: 10px 16px; border-radius: 6px; font-size: 14px; opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; z-index: 30; max-width: calc(100vw - 32px); }
 .toast.on { opacity: 1; transform: translate(-50%, 0); }
 .modal { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 40; }
@@ -528,10 +546,10 @@ button:active:not(:disabled) { transform: scale(.98); }
 
   <div class="tabs" role="tablist" id="tabs">
     <button class="tab" role="tab" data-tab="market" aria-selected="true">Market</button>
+    <button class="tab" role="tab" data-tab="scores" aria-selected="false">Live</button>
     <button class="tab" role="tab" data-tab="ipo" aria-selected="false">Rookies</button>
     <button class="tab" role="tab" data-tab="portfolio" aria-selected="false">Holdings</button>
     <button class="tab" role="tab" data-tab="board" aria-selected="false">League</button>
-    <button class="tab" role="tab" data-tab="scores" aria-selected="false">Live</button>
     <button class="tab" role="tab" data-tab="chat" aria-selected="false">Chat</button>
     <button class="tab" role="tab" data-tab="rules" aria-selected="false">Rules</button>
     <button class="tab" role="tab" data-tab="feed" aria-selected="false">Wire</button>
@@ -1748,7 +1766,7 @@ button:active:not(:disabled) { transform: scale(.98); }
 
   /* ---------- live scores (public ESPN feed, read straight from the phone) ---------- */
   var ESPN = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/";
-  var scores = { games: null, at: 0, err: "", busy: false, box: {}, timer: null };
+  var scores = { games: null, at: 0, err: "", busy: false, box: {}, timer: null, open: {}, seen: {} };
   function eteam(a) { a = String(a || "").toUpperCase(); return { JAX: "JAC", WSH: "WAS", LA: "LAR" }[a] || a; }
   function nkey(n) { return String(n || "").toLowerCase().replace(/\b(jr|sr|ii|iii|iv)\b\.?/g, "").replace(/[^a-z]/g, ""); }
   function jget(url) {
@@ -1758,7 +1776,7 @@ button:active:not(:disabled) { transform: scale(.98); }
   function parseGame(e) {
     var c = (e.competitions || [])[0] || {}, st = ((e.status || c.status || {}).type) || {}, cs = c.competitors || [];
     var home = cs.filter(function (x) { return x.homeAway === "home"; })[0] || cs[0] || {}, away = cs.filter(function (x) { return x.homeAway === "away"; })[0] || cs[1] || {};
-    function side(x) { return { t: eteam(x.team && x.team.abbreviation), s: +x.score || 0 }; }
+    function side(x) { var tm = x.team || {}, col = String(tm.color || ""), alt = String(tm.alternateColor || ""); return { t: eteam(tm.abbreviation), s: +x.score || 0, name: tm.shortDisplayName || tm.name || tm.abbreviation || "", logo: /^https:\/\//.test(tm.logo || "") ? tm.logo : "", c: /^[0-9a-f]{6}$/i.test(col) ? "#" + col : "#6b7280", c2: /^[0-9a-f]{6}$/i.test(alt) ? "#" + alt : "#9ca3af" }; }
     return { id: e.id, state: st.state || "pre", detail: st.shortDetail || st.detail || "", date: e.date, home: side(home), away: side(away) };
   }
   /* box score -> { "name|team": { passing: {label: value}, rushing: {...}, receiving: {...} }, defSacks: {team: n} } */
@@ -1782,7 +1800,8 @@ button:active:not(:disabled) { transform: scale(.98); }
     if (scores.busy || !window.fetch) return; scores.busy = true;
     jget(ESPN + "scoreboard").then(function (sc) {
       scores.games = (sc.events || []).map(parseGame); scores.at = Date.now(); scores.err = "";
-      return Promise.all(scores.games.filter(function (g) { return g.state === "in"; }).map(function (g) {
+      scores.games.forEach(function (g) { if (!scores.seen[g.id]) { scores.seen[g.id] = 1; if (g.state === "in") scores.open[g.id] = true; } });
+      return Promise.all(scores.games.filter(function (g) { return g.state === "in" || (g.state === "post" && scores.open[g.id] && !scores.box[g.id]); }).map(function (g) {
         return jget(ESPN + "summary?event=" + g.id).then(function (sm) { scores.box[g.id] = parseBox(sm); }, function () {});
       }));
     }).then(null, function () { scores.err = "Live scores are not available right now. Try again in a minute."; }).then(function () { scores.busy = false; if (tab === "scores") scoresUpdate(); });
@@ -1799,25 +1818,38 @@ button:active:not(:disabled) { transform: scale(.98); }
     if (re && (n0(re.REC) || n0(re.TGTS))) parts.push(n0(re.REC) + " rec, " + n0(re.YDS) + " yds" + (n0(re.TD) ? ", " + n0(re.TD) + " TD" : ""));
     return parts.join(" · ");
   }
+  function teamLogo(t) {
+    var ini = esc(String(t.t || "").slice(0, 3));
+    return '<span class="tlogo" style="background:' + t.c + '">' + (t.logo ? '<img src="' + esc(t.logo) + '" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()" onload="this.parentNode.style.background=&#39;#fff&#39;;this.nextSibling.style.display=&#39;none&#39;">' : '') + '<i>' + ini + '</i></span>';
+  }
   function gameCardHTML(g) {
-    var b = scores.box[g.id], mine = S.players.filter(function (p) { return p.team === g.home.t || p.team === g.away.t; }).sort(function (a, c) { return c.px - a.px; });
-    var rowsH = mine.map(function (p) {
-      var ln = liveLine(p, g, b), own = S.holdings[p.id];
-      return '<div class="item"><div class="oline pad"><span><b>' + esc(p.name) + '</b> <span class="pool">' + esc(p.pos) + ' &middot; ' + esc(p.team) + (own ? ' &middot; you own ' + fmtSh(own.sh) : '') + '</span><br><span class="pool">' + (ln ? esc(ln) : 'No stats yet') + '</span></span><span class="num">$' + p.px.toFixed(2) + '</span></div></div>';
-    }).join("");
-    return '<div class="item" style="padding:12px"><div class="oline"><span><b>' + esc(g.away.t) + ' ' + g.away.s + '</b> at <b>' + esc(g.home.t) + ' ' + g.home.s + '</b></span><span class="pool">' + esc(g.detail) + '</span></div></div><div class="list">' + (rowsH || '<div class="item"><div class="pool pad">None of your market players are in this game.</div></div>') + '</div>';
+    var open = !!scores.open[g.id], b = scores.box[g.id], fin = g.state === "post", pre = g.state === "pre";
+    var d = fin ? g.detail : pre ? (g.date ? new Date(g.date).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" }) : g.detail) : g.detail;
+    function row(t, other) { var win = fin && t.s > other.s; return '<div class="grow"><span class="gt">' + teamLogo(t) + '<b>' + esc(t.name || t.t) + '</b></span><span class="gs' + (win ? ' win' : '') + '">' + (pre ? '' : t.s) + '</span></div>'; }
+    var h = '<div class="gcard" style="--ga:' + g.away.c + ';--gh:' + g.home.c + '"><button class="ghead" data-game="' + esc(g.id) + '" aria-expanded="' + open + '"><span class="gteams">' + row(g.away, g.home) + row(g.home, g.away) + '</span><span class="gmeta' + (g.state === "in" ? ' livepill' : '') + '">' + esc(d) + '<span class="chev" aria-hidden="true">' + (open ? '&#9650;' : '&#9660;') + '</span></span></button>';
+    if (open) {
+      var mine = S.players.filter(function (p) { return p.team === g.home.t || p.team === g.away.t; }).sort(function (a, c) { return c.px - a.px; });
+      h += '<div class="gbody">' + (mine.length ? mine.map(function (p) {
+        var ln = pre ? "" : liveLine(p, g, b), own = S.holdings[p.id], side = p.team === g.home.t ? g.home : g.away;
+        return '<div class="prow" style="border-left-color:' + side.c + '"><span><b>' + esc(p.name) + '</b> <span class="pool">' + esc(p.pos) + ' &middot; ' + esc(p.team) + (own ? ' &middot; you own ' + fmtSh(own.sh) : '') + '</span><br><span class="pool">' + (pre ? 'Not started' : ln ? esc(ln) : (fin && !b ? 'Loading stats...' : 'No stats yet')) + '</span></span><span class="num">$' + p.px.toFixed(2) + '</span></div>';
+      }).join("") : '<div class="pool pad">None of your market players are in this game.</div>') + '</div>';
+    }
+    return h + '</div>';
   }
   function scoresBodyHTML() {
     if (!scores.games) return scores.err ? '<div class="empty"><strong>No live scores</strong>' + esc(scores.err) + '</div>' : '<div class="empty"><strong>Loading scores</strong>One moment.</div>';
     var live = scores.games.filter(function (g) { return g.state === "in"; }), rest = scores.games.filter(function (g) { return g.state !== "in"; });
     var h = scores.err ? '<p class="note">' + esc(scores.err) + '</p>' : '';
     h += '<div class="sect">In progress</div>' + (live.length ? live.map(gameCardHTML).join("") : '<div class="empty"><strong>No games are being played right now</strong>When a game kicks off it shows up here with your players\' stats.</div>');
-    if (rest.length) h += '<div class="sect">Other games</div><div class="list">' + rest.map(function (g) {
-      var d = g.state === "post" ? g.detail : (g.date ? new Date(g.date).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" }) : g.detail);
-      return '<div class="item"><div class="oline pad"><span><b>' + esc(g.away.t) + (g.state === "pre" ? '' : ' ' + g.away.s) + '</b> at <b>' + esc(g.home.t) + (g.state === "pre" ? '' : ' ' + g.home.s) + '</b></span><span class="pool">' + esc(d) + '</span></div></div>';
-    }).join("") + '</div>';
+    if (rest.length) h += '<div class="sect">Other games</div>' + rest.map(gameCardHTML).join("");
     return h;
   }
+  document.addEventListener("click", function (e) {
+    var gh = e.target && e.target.closest && e.target.closest("[data-game]"); if (!gh) return;
+    var id = gh.getAttribute("data-game"); scores.open[id] = !scores.open[id]; scoresUpdate();
+    var g = (scores.games || []).filter(function (x) { return x.id === id; })[0];
+    if (scores.open[id] && g && g.state !== "pre" && !scores.box[id] && window.fetch) jget(ESPN + "summary?event=" + id).then(function (sm) { scores.box[id] = parseBox(sm); if (tab === "scores") scoresUpdate(); }, function () {});
+  });
   function renderScores() {
     if (!scores.games && !scores.busy && !scores.err) loadScores();
     var up = scores.at ? 'Updated ' + chatTime(scores.at) + '. Refreshes every 30 seconds while this tab is open.' : '';
