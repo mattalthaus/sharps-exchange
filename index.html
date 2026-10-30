@@ -310,6 +310,9 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .gbody { border-top: 1px solid var(--line); }
 .prow { display: flex; justify-content: space-between; gap: 10px; padding: 9px 12px; border-left: 4px solid var(--line); border-bottom: 1px solid var(--line); }
 .prow:last-child { border-bottom: 0; }
+.tlogo-s { width: 20px; height: 20px; object-fit: contain; flex: none; }
+.dhead .tlogo-s, .ipo-h .tlogo-s { width: 24px; height: 24px; }
+.av .avlogo { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; padding: 15%; box-sizing: border-box; background: #fff; }
 .toast { position: fixed; left: 50%; bottom: max(20px, env(safe-area-inset-bottom, 0px)); transform: translate(-50%, 20px); background: var(--fg); color: var(--bg); padding: 10px 16px; border-radius: 6px; font-size: 14px; opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; z-index: 30; max-width: calc(100vw - 32px); }
 .toast.on { opacity: 1; transform: translate(-50%, 0); }
 .modal { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 40; }
@@ -1764,6 +1767,9 @@ button:active:not(:disabled) { transform: scale(.98); }
     });
   }
 
+  /* team logos: one place, used by the market, holdings and live scores */
+  function logoUrl(code) { var c = String(code || "").toUpperCase(), m = { JAC: "jax", WAS: "wsh" }; return "https://a.espncdn.com/i/teamlogos/nfl/500/" + (m[c] || c.toLowerCase()) + ".png"; }
+  function logoImg(code, cls, cover) { return '<img class="' + cls + '" src="' + logoUrl(code) + '" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()"' + (cover ? ' style="opacity:0" onload="this.style.opacity=1"' : '') + '>'; }
   /* ---------- live scores (public ESPN feed, read straight from the phone) ---------- */
   var ESPN = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/";
   var scores = { games: null, at: 0, err: "", busy: false, box: {}, timer: null, open: {}, seen: {} };
@@ -1820,7 +1826,7 @@ button:active:not(:disabled) { transform: scale(.98); }
   }
   function teamLogo(t) {
     var ini = esc(String(t.t || "").slice(0, 3));
-    return '<span class="tlogo" style="background:' + t.c + '">' + (t.logo ? '<img src="' + esc(t.logo) + '" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()" onload="this.parentNode.style.background=&#39;#fff&#39;;this.nextSibling.style.display=&#39;none&#39;">' : '') + '<i>' + ini + '</i></span>';
+    return '<span class="tlogo" style="background:' + t.c + '">' + '<img src="' + logoUrl(t.t) + '" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()" onload="this.parentNode.style.background=&#39;#fff&#39;;this.nextSibling.style.display=&#39;none&#39;">' + '<i>' + ini + '</i></span>';
   }
   function gameCardHTML(g) {
     var open = !!scores.open[g.id], b = scores.box[g.id], fin = g.state === "post", pre = g.state === "pre";
@@ -2001,11 +2007,11 @@ button:active:not(:disabled) { transform: scale(.98); }
   function inkFor(hex) { var n = parseInt(hex.slice(1), 16), r = n >> 16, g = (n >> 8) & 255, b = n & 255; return (0.299 * r + 0.587 * g + 0.114 * b) > 150 ? "#101820" : "#ffffff"; }
   function teamTag(code) {
     var c = TEAM_COLOR[code] || "#4b5563", c2 = TEAM_COLOR2[code] || "#ffffff";
-    return '<span class="tm"><span class="tlg" style="--tc:' + c + ';--t2:' + c2 + ';--tx:' + inkFor(c) + '"><span class="tlgt">' + code + '</span></span></span>';
+    return '<span class="tm">' + logoImg(code, "tlogo-s") + '<span class="tlg" style="--tc:' + c + ';--t2:' + c2 + ';--tx:' + inkFor(c) + '"><span class="tlgt">' + code + '</span></span></span>';
   }
   function avatar(p, big) {
     var c = TEAM_COLOR[p.team] || "#4b5563", h = HEAD[p.id];
-    var inner = p.pos === "DEF" ? '<span class="avt">' + p.team + '</span>' : '<span class="avt">' + initials(p.name) + '</span>' + (h ? '<img src="' + HEAD_BASE + h + '" alt="" loading="lazy" referrerpolicy="no-referrer" style="opacity:0" onload="this.style.opacity=1" onerror="this.remove()">' : '');
+    var inner = p.pos === "DEF" ? '<span class="avt">' + p.team + '</span>' + logoImg(p.team, "avlogo", true) : '<span class="avt">' + initials(p.name) + '</span>' + (h ? '<img src="' + HEAD_BASE + h + '" alt="" loading="lazy" referrerpolicy="no-referrer" style="opacity:0" onload="this.style.opacity=1" onerror="this.remove()">' : '');
     return '<span class="av' + (big ? ' lg' : '') + (p.pos === "DEF" ? ' def' : '') + '" style="--tc:' + c + '">' + inner + '</span>';
   }
   function moverName(p) { if (p.pos === "DEF") return shortName(p); var i = p.name.indexOf(" "); return i > 0 ? p.name.charAt(0) + ". " + p.name.slice(i + 1) : p.name; }
