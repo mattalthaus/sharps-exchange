@@ -1,0 +1,17 @@
+{
+  "id": "./",
+  "name": "Sharps Exchange",
+  "short_name": "Sharps",
+  "description": "A free play-money stock market for NFL players. Own the Game.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f1f3ef",
+  "theme_color": "#0f6b4f",
+  "icons": [
+    { "src": "sx3-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "sx3-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "sx3-icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
