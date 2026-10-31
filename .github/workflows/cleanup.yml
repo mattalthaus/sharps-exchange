@@ -1,0 +1,14 @@
+name: Delete old backups
+on: workflow_dispatch
+permissions:
+  actions: write
+jobs:
+  clean:
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --paginate "repos/${{ github.repository }}/actions/artifacts?per_page=100" -q '.artifacts[] | select(.name=="sharps-backup") | .id' | while read id; do
+            gh api -X DELETE "repos/${{ github.repository }}/actions/artifacts/$id" && echo "Deleted backup $id"
+          done
