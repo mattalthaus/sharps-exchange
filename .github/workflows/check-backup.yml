@@ -1,0 +1,24 @@
+name: Check latest backup
+on: workflow_dispatch
+permissions:
+  actions: read
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download and open the newest backup
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          id=$(gh api "repos/${{ github.repository }}/actions/artifacts?name=sharps-backup&per_page=100" -q '.artifacts | sort_by(.created_at) | last | .id // empty')
+          if [ -z "$id" ]; then echo "No backup found. Run Play the week first."; exit 1; fi
+          gh api "repos/${{ github.repository }}/actions/artifacts/$id/zip" > b.zip
+          unzip -o -q b.zip -d b
+          f=$(find b -name '*.enc' | head -1)
+          echo "Checking $f"
+          node backup.js decrypt "$f" out.json
+          node -e "const j=require('./out.json');console.log('Backup made',j.made);for(const[t,r]of Object.entries(j.tables))console.log(' ',t+':',r.length,'rows');console.log('GOOD: the backup opens with your passphrase.')"
+          rm -f out.json
