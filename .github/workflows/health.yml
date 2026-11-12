@@ -1,0 +1,43 @@
+name: Health report
+on: workflow_dispatch
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Database and market check
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          cat > report.mjs <<'EOF'
+          const url = process.env.SUPABASE_URL, key = process.env.SUPABASE_SERVICE_KEY;
+          const H = { apikey: key, Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' };
+          const get = async p => { const r = await fetch(url + '/rest/v1/' + p, { headers: H }); if (!r.ok) throw new Error(p + ': ' + r.status + ' ' + await r.text()); return r.json(); };
+          const rpc = async f => { const r = await fetch(url + '/rest/v1/rpc/' + f, { method: 'POST', headers: H, body: '{}' }); return r.ok ? r.json() : 'not installed'; };
+          const pct = x => (x >= 0 ? '+' : '') + (x * 100).toFixed(1) + '%';
+          const med = a => { const s = [...a].sort((x, y) => x - y); return s.length ? s[Math.floor(s.length / 2)] : 0; };
+          const avg = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0;
+          const EXPECTED = 17;
+          const ver = await rpc('db_version');
+          console.log('Database version:', ver, ver === EXPECTED ? '(up to date)' : '(expected ' + EXPECTED + ': a patch may be missing)');
+          const [g] = await get('game_state?id=eq.1&select=week,season,updated_at,checked_at,status_note');
+          console.log('Season', g.season, '| next week to play:', g.week, '| prices last updated:', g.updated_at, '| last check:', g.checked_at);
+          console.log('Status:', g.status_note || '-');
+          const pl = await get('players?select=id,pos,px,hist&limit=1000');
+          const by = {}, all = [];
+          for (const p of pl) { const h = (p.hist || []).map(Number).filter(x => x > 0); if (h.length < 3) continue; const ch = Math.log(h[h.length - 1] / h[0]); (by[p.pos] = by[p.pos] || []).push(ch); all.push(ch); }
+          console.log("\nPrice change over each player's recorded games (up to his last 10):");
+          for (const k of Object.keys(by).sort()) console.log('  ' + k.padEnd(4) + String(by[k].length).padStart(4) + ' players   average ' + pct(Math.exp(avg(by[k])) - 1).padStart(7) + '   median ' + pct(Math.exp(med(by[k])) - 1).padStart(7));
+          const overall = Math.exp(avg(all)) - 1;
+          console.log('  ALL ' + String(all.length).padStart(4) + ' players   average ' + pct(overall).padStart(7) + '   median ' + pct(Math.exp(med(all)) - 1).padStart(7));
+          for (const l of await get('leagues?select=id,name,level&order=id')) {
+            const top = await get('net_worth_hist?league_id=eq.' + l.id + '&select=week&order=week.desc&limit=1'); if (!top.length) continue;
+            const wk = top[0].week, cur = (await get('net_worth_hist?league_id=eq.' + l.id + '&week=eq.' + wk + '&select=worth&limit=1000')).map(r => +r.worth);
+            console.log('\nLeague ' + l.id + ' "' + l.name + '" (Level ' + l.level + '): ' + cur.length + ' players after week ' + wk + ', median net worth $' + Math.round(med(cur)).toLocaleString('en-US') + ', ' + cur.filter(x => x > 10000).length + ' of ' + cur.length + ' above $10,000');
+          }
+          console.log('\nVerdict: ' + (Math.abs(overall) < 0.05 ? 'Prices are steady overall (' + pct(overall) + '). No change needed.' : Math.abs(overall) < 0.12 ? 'Prices have drifted ' + pct(overall) + ' overall. Worth watching, no change yet.' : 'Prices have drifted ' + pct(overall) + ' overall. Consider turning on gentle mean reversion.'));
+          EOF
+          node report.mjs
